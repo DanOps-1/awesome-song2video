@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+from typing import Annotated
+from uuid import uuid4
+
+from arq.connections import create_pool
+from fastapi import APIRouter, HTTPException, Path
+from pydantic import BaseModel
+
+from src.domain.models.render_job import RenderJob
+from src.infra.config.settings import get_settings
+from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
+from src.workers import redis_settings
+from src.workers.render_worker import render_mix
+
+
+router = APIRouter(prefix="/api/v1/mixes/{mix_id}/render", tags=["render"])
+repo = RenderJobRepository()
+settings = get_settings()
+
+
+class RenderOptions(BaseModel):
+    resolution: str = "1080p"
+    frame_rate: int = 25
+
+
+class RenderResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+@router.post("", response_model=RenderResponse, status_code=202)
+async def submit_render(
+    mix_id: Annotated[str, Path()],
+    body: RenderOptions,
+) -> RenderResponse:
+    job = RenderJob(
+        id=str(uuid4()),
+        mix_request_id=mix_id,
+        job_status="queued",
+        ffmpeg_script="",
+    )
+    await repo.save(job)
+    if settings.enable_async_queue:
+        pool = await create_pool(redis_settings())
+        await pool.enqueue_job("render_mix", job.id)
+    else:
+        await render_mix({}, job.id)
+    return RenderResponse(job_id=job.id, status=job.job_status)
+
+
+@router.get("", response_model=RenderResponse)
+async def get_render_status(mix_id: Annotated[str, Path()], job_id: str) -> RenderResponse:
+    job = await repo.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="render job not found")
+    return RenderResponse(job_id=job.id, status=job.job_status)

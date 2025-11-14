@@ -1,0 +1,300 @@
+openapi: 3.0.3
+info:
+  title: 歌词语义混剪 API
+  version: 0.1.0
+  description: |
+    覆盖歌词混剪任务的创建、语义匹配、人工校对与渲染导出流程。
+servers:
+  - url: https://api.twelvelabs.local
+    description: 内部集群入口
+paths:
+  /api/v1/mixes:
+    post:
+      summary: 创建混剪任务
+      description: 上传歌曲及歌词，返回任务 ID，并可选择立即触发自动匹配。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMixRequest'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongMixRequest'
+  /api/v1/mixes/{mix_id}:
+    get:
+      summary: 查询混剪任务
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      responses:
+        '200':
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SongMixRequest'
+  /api/v1/mixes/{mix_id}/generate-timeline:
+    post:
+      summary: 触发自动歌词匹配
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      responses:
+        '202':
+          description: 已开始生成
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 已进入匹配队列
+  /api/v1/mixes/{mix_id}/lines:
+    get:
+      summary: 列出所有歌词行与匹配片段
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      responses:
+        '200':
+          description: 时间线详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LyricLine'
+  /api/v1/mixes/{mix_id}/lines/{line_id}:
+    patch:
+      summary: 人工编辑某句歌词的片段与时间
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+        - $ref: '#/components/parameters/LineId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLyricLine'
+      responses:
+        '200':
+          description: 更新后的歌词行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LyricLine'
+  /api/v1/mixes/{mix_id}/lines/{line_id}/search:
+    post:
+      summary: 重新触发语义检索
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+        - $ref: '#/components/parameters/LineId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt_override:
+                  type: string
+                  description: 自定义语义提示
+      responses:
+        '200':
+          description: 新候选列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candidates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/VideoSegmentMatch'
+  /api/v1/mixes/{mix_id}/render:
+    post:
+      summary: 提交渲染任务
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderOptions'
+      responses:
+        '202':
+          description: 已进入渲染队列
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderJob'
+    get:
+      summary: 查看渲染进度
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      responses:
+        '200':
+          description: 渲染状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderJob'
+
+components:
+  parameters:
+    MixId:
+      name: mix_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LineId:
+      name: line_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    SongMixRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        song_title:
+          type: string
+        timeline_status:
+          type: string
+          enum: [pending, generated, in_review, approved]
+        render_status:
+          type: string
+          enum: [idle, queued, processing, done, failed]
+        owner_id:
+          type: string
+          format: uuid
+        metrics:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateMixRequest:
+      type: object
+      required: [song_title, source_type]
+      properties:
+        song_title:
+          type: string
+        artist:
+          type: string
+        source_type:
+          type: string
+          enum: [upload, catalog]
+        audio_asset_id:
+          type: string
+        lyrics_text:
+          type: string
+        language:
+          type: string
+          enum: [zh, en, mix, other]
+        auto_generate:
+          type: boolean
+          default: true
+    LyricLine:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        line_no:
+          type: integer
+        original_text:
+          type: string
+        start_time_ms:
+          type: integer
+        end_time_ms:
+          type: integer
+        status:
+          type: string
+          enum: [pending, auto_selected, edited, locked]
+        selected_segment:
+          $ref: '#/components/schemas/VideoSegmentMatch'
+        auto_confidence:
+          type: number
+          format: float
+    UpdateLyricLine:
+      type: object
+      properties:
+        start_time_ms:
+          type: integer
+        end_time_ms:
+          type: integer
+        selected_segment_id:
+          type: string
+          format: uuid
+        annotations:
+          type: string
+    VideoSegmentMatch:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_video_id:
+          type: string
+        start_time_ms:
+          type: integer
+        end_time_ms:
+          type: integer
+        score:
+          type: number
+        preview_url:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+    RenderOptions:
+      type: object
+      properties:
+        resolution:
+          type: string
+          enum: [1080p, 720p]
+          default: 1080p
+        frame_rate:
+          type: integer
+          default: 25
+        subtitle_style:
+          type: string
+          enum: [default, karaoke]
+          default: karaoke
+    RenderJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        job_status:
+          type: string
+          enum: [queued, running, success, failed, canceled]
+        progress:
+          type: number
+        output_asset_id:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time

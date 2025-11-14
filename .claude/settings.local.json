@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.specify/scripts/bash/check-prerequisites.sh:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(chmod:*)",
+      "Bash(python scripts/dev/e2e_test.py:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python scripts/dev/e2e_render_test.py:*)",
+      "Bash(ruff check:*)",
+      "Bash(python -m mypy:*)",
+      "Bash(cat:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(python scripts/dev/e2e_full_render_test.py:*)",
+      "Bash(ffprobe:*)",
+      "Bash(open:*)",
+      "Bash(python scripts/dev/check_preview_manifest.py:*)",
+      "Bash(python:*)",
+      "Bash(for file in AGENTS.md CHANGES_SUMMARY.md DEMO.md REAL_RUN_REPORT.md REAL_TWELVELABS_INTEGRATION.md RENDER_FIX_REPORT.md TEST_REPORT.md)",
+      "Bash(nslookup:*)",
+      "WebSearch",
+      "Bash(ls:*)",
+      "WebFetch(domain:docs.twelvelabs.io)",
+      "Bash(.specify/scripts/bash/setup-plan.sh:*)",
+      "Bash(.specify/scripts/bash/update-agent-context.sh:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

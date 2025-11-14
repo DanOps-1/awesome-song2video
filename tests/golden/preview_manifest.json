@@ -1,0 +1,45 @@
+{
+  "manifest": [
+    {
+      "line_id": "line-001",
+      "line_no": 1,
+      "lyrics": "东临碣石以观沧海",
+      "source_video_id": "6911acda8bf751b791733149",
+      "clip_start_ms": 1000,
+      "clip_end_ms": 4500,
+      "confidence": 0.92,
+      "fallback": false,
+      "fallback_reason": null
+    },
+    {
+      "line_id": "line-002",
+      "line_no": 2,
+      "lyrics": "水何澹澹山岛竦峙",
+      "source_video_id": "6911acda8bf751b791733149",
+      "clip_start_ms": 5000,
+      "clip_end_ms": 8500,
+      "confidence": 0.88,
+      "fallback": false,
+      "fallback_reason": null
+    },
+    {
+      "line_id": "line-003",
+      "line_no": 3,
+      "lyrics": "树木丛生百草丰茂",
+      "source_video_id": "6911acda8bf751b791733149",
+      "clip_start_ms": 0,
+      "clip_end_ms": 3500,
+      "confidence": 0.0,
+      "fallback": true,
+      "fallback_reason": "no_candidates_from_twelvelabs"
+    }
+  ],
+  "metrics": {
+    "line_count": 3,
+    "total_duration_ms": 10500,
+    "avg_delta_ms": 116.67,
+    "max_delta_ms": 350.0,
+    "fallback_count": 1,
+    "generated_at": "2025-11-13T12:00:00Z"
+  }
+}

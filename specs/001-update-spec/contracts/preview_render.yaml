@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: Lyrics Mix Preview & Render API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/mixes/{mix_id}/preview:
+    get:
+      summary: 获取混剪任务的时间线 manifest 与 preview 指标
+      parameters:
+        - in: path
+          name: mix_id
+          required: true
+          schema:
+            type: string
+          description: 混剪任务 ID
+      responses:
+        '200':
+          description: manifest 与指标
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewResponse'
+        '404':
+          description: timeline 未生成
+  /api/v1/mixes/{mix_id}/preview/{line_id}:
+    get:
+      summary: 获取单句歌词的片段映射
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+        - in: path
+          name: line_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 单行 preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewManifestEntry'
+        '404':
+          description: line 不存在
+  /api/v1/mixes/{mix_id}/render:
+    post:
+      summary: 提交渲染任务
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderOptions'
+      responses:
+        '202':
+          description: 任务已进入队列
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderResponse'
+    get:
+      summary: 查询渲染状态与指标
+      parameters:
+        - $ref: '#/components/parameters/MixId'
+        - in: query
+          name: job_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 任务状态与指标
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderStatus'
+        '404':
+          description: render job 未找到
+
+components:
+  parameters:
+    MixId:
+      in: path
+      name: mix_id
+      required: true
+      schema:
+        type: string
+  schemas:
+    PreviewManifestEntry:
+      type: object
+      required:
+        - line_id
+        - line_no
+        - lyrics
+        - source_video_id
+        - clip_start_ms
+        - clip_end_ms
+        - confidence
+        - fallback
+      properties:
+        line_id:
+          type: string
+        line_no:
+          type: integer
+        lyrics:
+          type: string
+        source_video_id:
+          type: string
+        clip_start_ms:
+          type: integer
+        clip_end_ms:
+          type: integer
+        confidence:
+          type: number
+          format: float
+        fallback:
+          type: boolean
+        fallback_reason:
+          type: string
+          nullable: true
+    PreviewMetrics:
+      type: object
+      required:
+        - line_count
+        - total_duration_ms
+        - avg_delta_ms
+        - max_delta_ms
+        - fallback_count
+        - generated_at
+      properties:
+        line_count:
+          type: integer
+        total_duration_ms:
+          type: integer
+        avg_delta_ms:
+          type: number
+        max_delta_ms:
+          type: number
+        fallback_count:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+    PreviewResponse:
+      type: object
+      properties:
+        manifest:
+          type: array
+          items:
+            $ref: '#/components/schemas/PreviewManifestEntry'
+        metrics:
+          $ref: '#/components/schemas/PreviewMetrics'
+    RenderOptions:
+      type: object
+      properties:
+        resolution:
+          type: string
+          default: 1080p
+        frame_rate:
+          type: integer
+          default: 25
+    RenderResponse:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, success, failed]
+    RenderMetrics:
+      type: object
+      properties:
+        line_count:
+          type: integer
+        avg_delta_ms:
+          type: number
+        max_delta_ms:
+          type: number
+        total_duration_ms:
+          type: integer
+        queued_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+    RenderStatus:
+      allOf:
+        - $ref: '#/components/schemas/RenderResponse'
+        - type: object
+          properties:
+            metrics:
+              $ref: '#/components/schemas/RenderMetrics'

@@ -1,0 +1,132 @@
+{
+  "title": "Lyrics Mix Observability",
+  "description": "歌词混剪系统监控仪表盘 - 包含 Preview/Render 指标",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "歌词解析耗时",
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(lyrics_parse_latency_bucket[5m])) by (le))"}],
+      "yAxisLabel": "ms"
+    },
+    {
+      "type": "stat",
+      "title": "匹配命中率",
+      "targets": [{"expr": "avg(match_hit_rate)"}],
+      "unit": "percentunit",
+      "thresholds": [0.7, 0.9]
+    },
+    {
+      "type": "graph",
+      "title": "渲染耗时",
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(render_duration_bucket[5m])) by (le))"}],
+      "yAxisLabel": "ms"
+    },
+    {
+      "type": "table",
+      "title": "API 错误率",
+      "targets": [{"expr": "sum(rate(api_error_rate[5m])) by (status_code)"}]
+    },
+    {
+      "type": "graph",
+      "title": "Preview: 平均对齐偏差",
+      "description": "歌词与视频片段的时间对齐偏差（越低越好，目标 ≤200ms）",
+      "targets": [
+        {
+          "expr": "lyrics_preview_avg_delta_ms",
+          "legendFormat": "{{mix_id}}"
+        }
+      ],
+      "yAxisLabel": "ms",
+      "thresholds": [
+        {"value": 200, "color": "green"},
+        {"value": 500, "color": "yellow"},
+        {"value": 1000, "color": "red"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Preview: 最大对齐偏差",
+      "description": "单个 mix 中最大对齐偏差（用于识别异常行）",
+      "targets": [
+        {
+          "expr": "lyrics_preview_max_delta_ms",
+          "legendFormat": "{{mix_id}}"
+        }
+      ],
+      "yAxisLabel": "ms"
+    },
+    {
+      "type": "stat",
+      "title": "Preview: Fallback 行数",
+      "description": "TwelveLabs 无命中导致使用 fallback 的歌词行数",
+      "targets": [
+        {
+          "expr": "sum(lyrics_preview_fallback_count)"
+        }
+      ],
+      "unit": "short",
+      "thresholds": [0, 5, 20]
+    },
+    {
+      "type": "graph",
+      "title": "Render: 对齐质量分布",
+      "description": "渲染完成后的对齐指标（平均值 & 最大值）",
+      "targets": [
+        {
+          "expr": "render_alignment_avg_delta_ms",
+          "legendFormat": "平均偏差 - {{job_id}}"
+        },
+        {
+          "expr": "render_alignment_max_delta_ms",
+          "legendFormat": "最大偏差 - {{job_id}}"
+        }
+      ],
+      "yAxisLabel": "ms",
+      "thresholds": [
+        {"value": 200, "color": "green"},
+        {"value": 500, "color": "yellow"}
+      ]
+    },
+    {
+      "type": "graph",
+      "title": "Render: 渲染时长",
+      "description": "从队列到完成的总耗时（含排队等待）",
+      "targets": [
+        {
+          "expr": "render_total_duration_ms / 1000",
+          "legendFormat": "{{job_id}}"
+        }
+      ],
+      "yAxisLabel": "seconds"
+    },
+    {
+      "type": "stat",
+      "title": "Render: 队列深度",
+      "description": "当前等待渲染的任务数（实时查询，非 OTEL 指标）",
+      "targets": [
+        {
+          "expr": "render_queue_depth"
+        }
+      ],
+      "unit": "short",
+      "thresholds": [0, 5, 10]
+    }
+  ],
+  "annotations": [
+    {
+      "name": "Preview 生成事件",
+      "datasource": "Loki",
+      "expr": "{job=\"lyrics-mix-api\"} |= \"preview.manifest_built\""
+    },
+    {
+      "name": "Render 存储 TODO",
+      "datasource": "Loki",
+      "expr": "{job=\"lyrics-mix-worker\"} |= \"render_worker.storage_todo\" | json | line_format \"MinIO 未启用: {{.local_path}}\""
+    },
+    {
+      "name": "Fallback 使用",
+      "datasource": "Loki",
+      "expr": "{job=\"lyrics-mix-api\"} |= \"fallback_reason\" | json | line_format \"{{.line_id}}: {{.fallback_reason}}\""
+    }
+  ]
+}

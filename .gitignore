@@ -1,0 +1,48 @@
+# Python / 通用
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# 配置与敏感信息
+.env
+.env.*
+*.local
+
+# 编辑器/系统
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
+
+# 测试/覆盖率
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+coverage.xml
+
+# 日志
+*.log
+logs/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时渲染文件
+artifacts/render_tmp/
+artifacts/*.mp4
+artifacts/*.mp3
+
+# 其他工具
+node_modules/
+*.swp
+.ruff_cache/
