@@ -252,12 +252,18 @@ sqlite3 dev.db "SELECT id, timeline_status FROM song_mix_requests WHERE id='...'
 
 ## 许可证
 
-MIT License
+本项目采用 **CC BY-NC 4.0** 许可证（Creative Commons Attribution-NonCommercial 4.0 International）
+
+- ✅ 允许个人学习和研究使用
+- ✅ 允许修改和分发（需注明原作者）
+- ❌ 不允许商业用途
+
+详见：https://creativecommons.org/licenses/by-nc/4.0/
 
 ## 联系方式
 
-- 项目负责人：twelve_labs
-- Email: dev@twelvelabs.local
+- 项目负责人：DanOps-1
+- Email: 870657960@qq.com
 
 ---
 
