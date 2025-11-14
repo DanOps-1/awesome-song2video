@@ -9,7 +9,7 @@ description: "功能实施任务模板"
 **输入**：`/specs/[###-feature-name]/` 下的设计文档  
 **前置**：plan.md（必填）、spec.md（用户故事）、research.md、data-model.md、contracts/
 
-**测试说明**：除非规格文件明确要求，可选测试任务可以省略；若包含，必须在实现前编写并确保先失败后通过。
+**测试说明**：除非规格文件明确要求，可选测试任务可以省略；若包含，必须在实现前编写并确保先失败后通过；同一任务若需运行 `uvicorn`/`arq`/`pytest`/`scripts/dev/seed_demo.sh` 等标准命令，须在描述中写出具体参数与期望结果。
 
 **组织方式**：任务按用户故事分组，保证任一故事可独立实现与测试。全部描述与注释须使用简体中文，并写明精确文件路径。
 
@@ -21,10 +21,13 @@ description: "功能实施任务模板"
 
 ## 路径约定
 
-- **单体项目**：`src/`、`tests/` 位于仓库根目录。
-- **Web 应用**：`backend/src/`、`frontend/src/` 等。
-- **移动场景**：`api/src/`、`ios/src/` 或 `android/src/`。
-- 如与计划不符，必须在任务中说明真实路径。
+- **API 层**：`src/api/v1/`。
+- **Domain 层**：`src/domain/models/` 与 `src/domain/services/`。
+- **Pipelines**：`src/pipelines/lyrics_ingest/`、`src/pipelines/matching/`、`src/pipelines/rendering/`。
+- **Infra**：`src/infra/persistence/`、`src/infra/messaging/`、`src/infra/observability/`。
+- **Workers**：`src/workers/timeline_worker.py`、`src/workers/render_worker.py`。
+- **Tests**：`tests/unit/`、`tests/contract/`、`tests/integration/`、`tests/golden/`。
+- 任何与以上不同的路径/命令需在任务描述中说明原因并关联 PR。
 
 > 以下条目均为示例，请在运行 `/speckit.tasks` 时根据真实故事与规格完全替换。
 

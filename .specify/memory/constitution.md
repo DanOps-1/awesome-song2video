@@ -1,19 +1,17 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 -> 1.2.0
+Version change: 1.2.0 -> 1.3.0
 Modified principles:
-- 原则五：可观测、安全与版本纪律（新增字幕/画面对齐证据要求）
+- 无
 Added sections:
-- 附加约束与技术栈：时间线预览与对齐、Fallback 媒资说明
+- 附加约束与技术栈：新增“目录结构与职责映射”“标准开发命令”两条指引，确保文档、命令与仓库形态对齐
 Removed sections:
 - 无
 Templates requiring updates:
-- ✅ .specify/templates/plan-template.md（已有异步/中文/观测检查，预览要求可沿用）
-- ✅ .specify/templates/spec-template.md（同上）
-- ✅ .specify/templates/tasks-template.md（同上）
-- ✅ .specify/templates/commands（本命令描述已泛化）
+- ✅ .specify/templates/plan-template.md（加入 canonical 结构与命令检查）
+- ✅ .specify/templates/tasks-template.md（同步路径约定与命令）
 Follow-up TODOs:
-- 如启用 MinIO/S3，请在 docs/lyrics_mix_runbook.md 增补部署细节
+- 无
 -->
 
 # 十二实验室异步平台 Constitution
@@ -51,9 +49,11 @@ Follow-up TODOs:
 - **技术栈基线**：API/worker 层统一采用 FastAPI + httpx、TwelveLabs Python SDK（语义检索）、SQLModel + asyncpg（PostgreSQL 15）、Redis 7 + Arq（异步任务）、FFmpeg CLI + Whisper + Pydub（音视频处理）、OpenTelemetry + structlog（观测）。引入其他方案前必须列出与现有栈的互操作与替换策略。
 - **配置与密钥**：采纳分层配置（本地 `.env`、CI Secret、运行时参数），严禁在仓库中存放明文密钥；所有 I/O 必须通过具备超时、重试与熔断能力的客户端封装。
 - **外部 API 与媒资安全**：TwelveLabs、MinIO/S3、对象存储及任何第三方接口都必须实现 token bucket、指数退避与 fallback 逻辑；媒资文件需以 `media/{audio,video}/{video_id}.ext` 管理并配套清晰的清理策略，禁止临时文件泄漏。
+- **目录结构与职责映射**：仓库必须保持 `src/api/v1/`、`src/domain/{models,services}/`、`src/pipelines/{lyrics_ingest,matching,rendering}/`、`src/infra/{persistence,messaging,observability}/`、`src/workers/{timeline_worker,render_worker}.py` 以及 `tests/{unit,contract,integration,golden}/` 等目录与 README、AGENTS.md 描述一致；新增模块须在相应层建模并在规格/计划中交代职责。
 - **时间线预览与对齐**：后端必须提供 JSON manifest 接口（逐句返回素材来源、起止时间、置信度），并在 `SongMixRequest.metrics.preview`/`metrics.render` 中记录平均及最大字幕延迟；任何缺失候选的歌词需明确 fallback 策略并提示人工补片。
 - **文档与范式**：规范文档、模板与代码注释需用中文撰写并保持 ≤100 字的段落长度，以便快速复用；所有自动生成的文件需记录触发命令与时间戳。
 - **类与模块命名**：使用全拼或行业通用词汇，避免含糊缩写；模块目录须与职责一致（如 `async_services/`, `domain_models/`, `protocols/`）。
+- **标准开发命令**：日常联调必须使用 `uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy` 与 `scripts/dev/seed_demo.sh`；若需新增或替换命令，必须同步 README、模板并在 PR 中写明原因与影响。
 
 ## 开发流程与质量门槛
 
@@ -67,4 +67,4 @@ Follow-up TODOs:
 - **版本策略**：宪章采用语义化版本；新增原则或重大流程调整触发 MINOR+ 版本，破坏性治理变更触发 MAJOR，措辞澄清或轻微细化记为 PATCH。版本更新需在 Sync Impact Report 中说明原因。
 - **合规审查**：每个迭代结束时，技术负责人需对照五项原则与附加约束执行抽查，并记录至 `docs/compliance/<迭代>.md`（若暂未创建需新建）。发现违规需在两周内补救或提交豁免申请。
 
-**Version**: 1.2.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-13
+**Version**: 1.3.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-14
