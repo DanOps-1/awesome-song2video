@@ -1,15 +1,16 @@
 <!--
 Sync Impact Report
-Version change: 1.2.0 -> 1.3.0
+Version change: 1.3.0 -> 1.4.0
 Modified principles:
-- 无
+- 附加约束与技术栈：新增“媒资片段拉取”“歌词细粒度分句”，强化 manifest 粒度与下载策略
 Added sections:
-- 附加约束与技术栈：新增“目录结构与职责映射”“标准开发命令”两条指引，确保文档、命令与仓库形态对齐
+- 无
 Removed sections:
 - 无
 Templates requiring updates:
-- ✅ .specify/templates/plan-template.md（加入 canonical 结构与命令检查）
-- ✅ .specify/templates/tasks-template.md（同步路径约定与命令）
+- ✅ .specify/templates/plan-template.md（加入媒资片段/分句合规检查）
+- ✅ .specify/templates/spec-template.md（提醒描述媒资片段与分句需求）
+- ✅ .specify/templates/tasks-template.md（加入相关任务提示）
 Follow-up TODOs:
 - 无
 -->
@@ -51,6 +52,8 @@ Follow-up TODOs:
 - **外部 API 与媒资安全**：TwelveLabs、MinIO/S3、对象存储及任何第三方接口都必须实现 token bucket、指数退避与 fallback 逻辑；媒资文件需以 `media/{audio,video}/{video_id}.ext` 管理并配套清晰的清理策略，禁止临时文件泄漏。
 - **目录结构与职责映射**：仓库必须保持 `src/api/v1/`、`src/domain/{models,services}/`、`src/pipelines/{lyrics_ingest,matching,rendering}/`、`src/infra/{persistence,messaging,observability}/`、`src/workers/{timeline_worker,render_worker}.py` 以及 `tests/{unit,contract,integration,golden}/` 等目录与 README、AGENTS.md 描述一致；新增模块须在相应层建模并在规格/计划中交代职责。
 - **时间线预览与对齐**：后端必须提供 JSON manifest 接口（逐句返回素材来源、起止时间、置信度），并在 `SongMixRequest.metrics.preview`/`metrics.render` 中记录平均及最大字幕延迟；任何缺失候选的歌词需明确 fallback 策略并提示人工补片。
+- **媒资片段拉取**：所有 TwelveLabs/MinIO 视频下载必须基于 `retrieve` API 或等效 HLS 流按需截取所需时间窗，禁止无期限保存整段 MP4；临时文件需放置受管控目录并在作业结束后清理，日志必须记录目标 video_id 与片段跨度。
+- **歌词细粒度分句**：Whisper 或歌词输入在生成 manifest 前必须按换行与常见标点切分，保证每条记录对应一行歌词；如原始片段仍过长，需按字符比例重新分配时间窗以确保字幕与画面对齐。
 - **文档与范式**：规范文档、模板与代码注释需用中文撰写并保持 ≤100 字的段落长度，以便快速复用；所有自动生成的文件需记录触发命令与时间戳。
 - **类与模块命名**：使用全拼或行业通用词汇，避免含糊缩写；模块目录须与职责一致（如 `async_services/`, `domain_models/`, `protocols/`）。
 - **标准开发命令**：日常联调必须使用 `uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy` 与 `scripts/dev/seed_demo.sh`；若需新增或替换命令，必须同步 README、模板并在 PR 中写明原因与影响。
@@ -67,4 +70,4 @@ Follow-up TODOs:
 - **版本策略**：宪章采用语义化版本；新增原则或重大流程调整触发 MINOR+ 版本，破坏性治理变更触发 MAJOR，措辞澄清或轻微细化记为 PATCH。版本更新需在 Sync Impact Report 中说明原因。
 - **合规审查**：每个迭代结束时，技术负责人需对照五项原则与附加约束执行抽查，并记录至 `docs/compliance/<迭代>.md`（若暂未创建需新建）。发现违规需在两周内补救或提交豁免申请。
 
-**Version**: 1.3.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-14
+**Version**: 1.4.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-17
