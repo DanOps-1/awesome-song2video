@@ -62,7 +62,7 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
     logger.info("timeline_worker.completed", mix_id=mix_id, lines=len(lines))
 
 
-async def health_check(ctx) -> None:  # pragma: no cover - cron hook
+async def health_check(ctx: dict | None) -> None:  # pragma: no cover - cron hook
     logger.info("timeline_worker.health_check")
 
 

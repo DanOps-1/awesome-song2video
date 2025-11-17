@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+"""Pytest fixtures for lyrics mix project."""
+# ruff: noqa: E402
+
 import asyncio
 import sys
 import uuid

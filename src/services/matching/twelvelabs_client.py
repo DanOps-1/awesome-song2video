@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, List, cast
 from uuid import uuid4
 
 import structlog
@@ -33,7 +33,7 @@ class TwelveLabsClient:
         self._settings = get_settings()
         self._live_enabled = self._settings.tl_live_enabled
         self._index_id = self._settings.tl_index_id
-        self._client: TwelveLabs | None = None
+        self._client: Any | None = None
         self._base_urls = self._build_base_url_chain()
         self._base_url_index = -1
         self._current_base_url: str | None = None
@@ -45,7 +45,7 @@ class TwelveLabsClient:
             logger.info("twelvelabs.mock_search", query=query)
             return self._mock_results(query, limit)
 
-        option_chain = [
+        option_chain: list[list[str]] = [
             ["visual", "audio"],
             ["audio"],
             ["visual"],
@@ -54,13 +54,9 @@ class TwelveLabsClient:
 
         async def _run_with_options(options: list[str]) -> list[dict[str, Any]]:
             def blocking_call() -> list[dict[str, Any]]:
-                logger.info(
-                    "twelvelabs.search_query",
-                    query=query,
-                    base_url=self._current_base_url,
-                    options=options,
-                )
-                pager = self._client.search.query(
+                logger.info("twelvelabs.search_query", query=query, base_url=self._current_base_url, options=options)
+                client = cast(Any, self._client)
+                pager = client.search.query(
                     index_id=self._index_id,
                     query_text=query,
                     search_options=options,
@@ -73,11 +69,17 @@ class TwelveLabsClient:
 
         for options in option_chain:
             try:
-                results = await with_rate_limit(
-                    rate_key,
-                    limit=40,
-                    interval_seconds=60,
-                    action=lambda opts=options: _run_with_options(opts),
+                async def _execute() -> list[dict[str, Any]]:
+                    return await _run_with_options(options)
+
+                results = cast(
+                    list[dict[str, Any]],
+                    await with_rate_limit(
+                        rate_key,
+                        limit=40,
+                        interval_seconds=60,
+                        action=_execute,
+                    ),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(

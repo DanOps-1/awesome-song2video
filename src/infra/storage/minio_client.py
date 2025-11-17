@@ -21,7 +21,7 @@ class MediaClient:
             self.client.make_bucket(self.bucket)
 
     def upload_audio(self, object_name: str, file_path: Path) -> str:
-        self.client.fput_object(self.bucket, object_name, file_path)
+        self.client.fput_object(self.bucket, object_name, str(file_path))
         return object_name
 
     def generate_presigned(self, object_name: str) -> str:

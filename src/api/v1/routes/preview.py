@@ -8,8 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, Path, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Path
 
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.services.preview.preview_service import preview_service

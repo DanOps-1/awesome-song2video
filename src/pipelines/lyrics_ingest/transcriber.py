@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, cast
 
 from anyio import to_thread
-from pydub import AudioSegment
-import whisper
+from pydub import AudioSegment  # type: ignore[import-untyped]
+import whisper  # type: ignore[import-untyped]
 
 from src.infra.config.settings import get_settings
 
@@ -34,7 +34,8 @@ async def transcribe_with_timestamps(audio_path: Path) -> Sequence[WhisperResult
     def _run_model() -> Sequence[WhisperResult]:
         model = _get_model()
         result = model.transcribe(temp.as_posix(), word_timestamps=False)
-        return result.get("segments", [])
+        segments_any = result.get("segments", [])
+        return cast(Sequence[WhisperResult], segments_any)
 
     segments = await to_thread.run_sync(_run_model)
     temp.unlink(missing_ok=True)

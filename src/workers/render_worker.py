@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
 import subprocess
 import tempfile
@@ -14,7 +13,6 @@ from typing import Iterable
 import structlog
 
 from src.domain.models.metrics import create_render_metrics
-from src.domain.models.render_job import RenderJob
 from src.domain.models.song_mix import LyricLine, SongMixRequest
 from src.infra.config.settings import get_settings
 from src.infra.observability.preview_render_metrics import (
@@ -23,8 +21,8 @@ from src.infra.observability.preview_render_metrics import (
 )
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
-from src.infra.storage.minio_client import media_client
 from src.pipelines.rendering.ffmpeg_script_builder import FFMpegScriptBuilder, RenderLine
+from src.services.matching.twelvelabs_video_fetcher import video_fetcher
 from src.workers import BaseWorkerSettings
 
 logger = structlog.get_logger(__name__)
@@ -113,10 +111,10 @@ async def _render_mix_impl(job_id: str) -> None:
 
             # 创建完整的 render metrics
             render_metrics_dict = create_render_metrics(
-                line_count=alignment_data["line_count"],
-                avg_delta_ms=alignment_data["avg_delta_ms"],
-                max_delta_ms=alignment_data["max_delta_ms"],
-                total_duration_ms=alignment_data["total_duration_ms"],
+                line_count=int(alignment_data["line_count"]),
+                avg_delta_ms=float(alignment_data["avg_delta_ms"]),
+                max_delta_ms=float(alignment_data["max_delta_ms"]),
+                total_duration_ms=int(alignment_data["total_duration_ms"]),
                 queued_at=queued_at,
                 finished_at=finished_at,
             )
@@ -181,10 +179,11 @@ async def _render_mix_impl(job_id: str) -> None:
 
 
 def _build_render_line(line: LyricLine) -> RenderLine:
-    if line.selected_segment_id and line.candidates:
-        selected = next((c for c in line.candidates if c.id == line.selected_segment_id), None)
+    candidates = getattr(line, "candidates", []) or []
+    if line.selected_segment_id and candidates:
+        selected = next((c for c in candidates if c.id == line.selected_segment_id), None)
     else:
-        selected = line.candidates[0] if line.candidates else None
+        selected = candidates[0] if candidates else None
     source_video_id = selected.source_video_id if selected else settings.fallback_video_id
     start_ms = selected.start_time_ms if selected else line.start_time_ms
     end_ms = selected.end_time_ms if selected else line.end_time_ms
@@ -201,26 +200,12 @@ def _build_render_line(line: LyricLine) -> RenderLine:
 def _extract_clips(lines: Iterable[RenderLine], tmp_path: Path) -> list[Path]:
     clips: list[Path] = []
     for idx, line in enumerate(lines):
-        source_path = Path(settings.video_asset_dir) / f"{line.source_video_id}.mp4"
         clip_path = tmp_path / f"clip_{idx}.mp4"
-        if not source_path.exists():
-            logger.warning("render_worker.missing_source", source=source_path.as_posix())
+        clip = video_fetcher.fetch_clip(line.source_video_id, line.start_time_ms, line.end_time_ms, clip_path)
+        if clip is None or not clip.exists():
+            logger.warning("render_worker.clip_failed", video_id=line.source_video_id, idx=idx)
             continue
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-ss",
-            f"{line.start_time_ms / 1000:.2f}",
-            "-to",
-            f"{line.end_time_ms / 1000:.2f}",
-            "-i",
-            source_path.as_posix(),
-            "-c",
-            "copy",
-            clip_path.as_posix(),
-        ]
-        _run_ffmpeg(cmd)
-        clips.append(clip_path)
+        clips.append(clip)
     return clips
 
 

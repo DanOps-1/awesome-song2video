@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
+import re
 from uuid import uuid4
 
 import structlog
@@ -33,12 +34,14 @@ class TimelineBuilder:
         self._use_mock_segments = not self._settings.tl_live_enabled
         self._candidate_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self._logger = structlog.get_logger(__name__)
+        self._split_pattern = re.compile(r"(?:\r?\n)+|[，,。！？!?；;…]")
 
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
-        segments = []
+        segments: list[dict[str, Any]] = []
         if audio_path:
-            segments = await transcribe_with_timestamps(audio_path)
+            raw_segments = await transcribe_with_timestamps(audio_path)
+            segments = [dict(segment) for segment in raw_segments]
         elif lyrics_text:
             for idx, line in enumerate(lyrics_text.splitlines()):
                 stripped = line.strip()
@@ -48,14 +51,21 @@ class TimelineBuilder:
         else:
             raise ValueError("必须提供音频或歌词")
 
+        segments = self._explode_segments(segments)
+
         timeline = TimelineResult()
         for seg in segments:
-            raw_text: str = seg["text"]
+            raw_text = str(seg.get("text", ""))
             text = raw_text.strip().strip("'\"")
             if not text:
                 continue
-            start_ms = int(float(seg.get("start", 0)) * 1000)
-            end_ms = int(float(seg.get("end", start_ms / 1000 + 1)) * 1000)
+            start_value = seg.get("start", 0)
+            end_value = seg.get("end")
+            start_ms = int(float(start_value) * 1000)
+            if end_value is None:
+                end_ms = start_ms + 1000
+            else:
+                end_ms = int(float(end_value) * 1000)
             candidates = await self._get_candidates(text, limit=3)
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
             timeline.lines.append(
@@ -111,3 +121,35 @@ class TimelineBuilder:
             use_mock=self._use_mock_segments,
         )
         return candidates
+
+    def _explode_segments(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        exploded: list[dict[str, Any]] = []
+        for seg in segments:
+            text = str(seg.get("text", "")).strip()
+            if not text:
+                continue
+            pieces = [piece.strip() for piece in self._split_pattern.split(text) if piece and piece.strip()]
+            if len(pieces) <= 1:
+                exploded.append(seg)
+                continue
+            start = float(seg.get("start", 0.0))
+            end = float(seg.get("end", start + 1.0))
+            if end <= start:
+                end = start + 1.0
+            duration = end - start
+            total_chars = sum(len(piece) for piece in pieces) or len(pieces)
+            cursor = start
+            for idx, piece in enumerate(pieces):
+                ratio = len(piece) / total_chars if total_chars else 1.0 / len(pieces)
+                chunk_duration = duration * ratio
+                chunk_end = end if idx == len(pieces) - 1 else cursor + chunk_duration
+                exploded.append(
+                    {
+                        **seg,
+                        "text": piece,
+                        "start": cursor,
+                        "end": chunk_end,
+                    }
+                )
+                cursor = chunk_end
+        return exploded

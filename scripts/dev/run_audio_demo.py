@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """运行端到端 Demo：读取 media/audio/tom.mp3，生成英文歌词混剪视频。"""
+# ruff: noqa: E402
 
 from __future__ import annotations
 
@@ -122,11 +123,18 @@ async def run_demo() -> dict[str, Any]:
     final_subtitle = None
     if output_path and output_path.exists():
         final_video = ARTIFACT_DIR / f"{job_id}.mp4"
-        shutil.copy2(output_path, final_video)
+        if output_path.resolve() != final_video.resolve():
+            shutil.copy2(output_path, final_video)
+        else:
+            final_video = output_path
+
         subtitle_candidate = output_path.with_suffix(".srt")
         if subtitle_candidate.exists():
             final_subtitle = ARTIFACT_DIR / f"{job_id}.srt"
-            shutil.copy2(subtitle_candidate, final_subtitle)
+            if subtitle_candidate.resolve() != final_subtitle.resolve():
+                shutil.copy2(subtitle_candidate, final_subtitle)
+            else:
+                final_subtitle = subtitle_candidate
 
     return {
         "mix_id": mix_id,

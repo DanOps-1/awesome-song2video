@@ -36,4 +36,4 @@ class AppSettings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> AppSettings:
-    return AppSettings()
+    return AppSettings()  # type: ignore[call-arg]

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from arq.connections import create_pool
 from fastapi import APIRouter, HTTPException, Path
-from pydantic import BaseModel, constr
+from pydantic import BaseModel, Field
 
 from src.domain.models.song_mix import SongMixRequest
 from src.infra.config.settings import get_settings
@@ -20,9 +20,9 @@ settings = get_settings()
 
 
 class MixCreateRequest(BaseModel):
-    song_title: constr(min_length=1, max_length=128)
+    song_title: str = Field(..., min_length=1, max_length=128)
     artist: str | None = None
-    source_type: constr(pattern="^(upload|catalog)$")
+    source_type: str = Field(..., pattern="^(upload|catalog)$")
     audio_asset_id: str | None = None
     lyrics_text: str | None = None
     language: str = "zh"

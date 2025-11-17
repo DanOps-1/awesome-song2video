@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Path, Query
 from pydantic import BaseModel
@@ -41,11 +41,15 @@ class SearchRequest(BaseModel):
     prompt_override: str | None = None
 
 
+class SearchResponse(BaseModel):
+    candidates: list[dict]
+
+
 @router.get("", response_model=LineListResponse)
 async def list_lines(
     mix_id: Annotated[str, Path(description="混剪任务 ID")],
     min_confidence: Annotated[float | None, Query(ge=0, le=1)] = None,
-):
+) -> dict[str, Any]:
     lines = await editor.list_lines(mix_id, min_confidence=min_confidence)
     return {"lines": lines}
 
@@ -55,7 +59,7 @@ async def update_line(
     mix_id: Annotated[str, Path()],
     line_id: Annotated[str, Path()],
     body: LineUpdateRequest,
-):
+) -> dict[str, Any]:
     try:
         updated = await editor.lock_line(
             line_id,
@@ -69,12 +73,12 @@ async def update_line(
     return updated
 
 
-@router.post("/{line_id}/search")
+@router.post("/{line_id}/search", response_model=SearchResponse)
 async def search_new_segments(
     mix_id: Annotated[str, Path()],
     line_id: Annotated[str, Path()],
     body: SearchRequest,
-):
+) -> dict[str, Any]:
     try:
         candidates = await editor.rerun_search(line_id, prompt_override=body.prompt_override)
     except ValueError as exc:  # noqa: PERF203

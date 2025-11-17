@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
+from pydantic import PrivateAttr
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
@@ -40,7 +41,23 @@ class LyricLine(SQLModel, table=True):
     status: str = Field(default="pending")
     annotations: Optional[str] = None
     audit_log: list[dict[str, Any]] | None = Field(default=None, sa_column=Column(JSON))
-    # 运行时赋值的候选片段列表（非持久化字段）
+    _candidates: list[VideoSegmentMatch] = PrivateAttr(default_factory=list)
+
+    @property
+    def candidates(self) -> list[VideoSegmentMatch]:
+        private = getattr(self, "__pydantic_private__", None)
+        if private is None or "_candidates" not in private:
+            self.__pydantic_private__ = {"_candidates": []}
+            return []
+        return private["_candidates"]
+
+    @candidates.setter
+    def candidates(self, value: list[VideoSegmentMatch]) -> None:
+        private = getattr(self, "__pydantic_private__", None)
+        if private is None:
+            self.__pydantic_private__ = {"_candidates": value}
+        else:
+            private["_candidates"] = value
 
 
 class SongMixRequest(SQLModel, table=True):

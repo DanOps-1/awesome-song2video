@@ -16,7 +16,6 @@
 import asyncio
 import json
 import sys
-import time
 import uuid
 from pathlib import Path
 
@@ -141,7 +140,7 @@ async def main() -> None:
 
         except Exception as e:
             print(f"    ⚠️  TwelveLabs 搜索失败: {e}")
-            print(f"    使用 fallback 视频代替")
+            print("    使用 fallback 视频代替")
             # 使用 fallback 视频
             fallback_match = VideoSegmentMatch(
                 id=f"{mix_id}-match-{line.line_no}-fallback",
@@ -156,7 +155,7 @@ async def main() -> None:
             candidates.append(fallback_match)
 
     if not candidates:
-        print(f"❌ 没有找到任何候选片段")
+        print("❌ 没有找到任何候选片段")
         sys.exit(1)
 
     await song_repo.attach_candidates(candidates)
@@ -225,7 +224,7 @@ async def main() -> None:
     # 检查文件是否存在
     if output_path.exists():
         file_size = output_path.stat().st_size
-        print(f"✓ 视频文件已生成")
+        print("✓ 视频文件已生成")
         print(f"  文件大小: {file_size / 1024:.2f} KB")
     else:
         print(f"❌ 视频文件不存在: {output_path}")
