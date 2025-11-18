@@ -20,6 +20,7 @@ class AppSettings(BaseSettings):
     tl_index_id: str = "6911aaadd68fb776bc1bd8e7"
     tl_live_enabled: bool = False
     tl_api_base_url: str | None = None
+    tl_audio_search_enabled: bool = False
     postgres_dsn: str
     redis_url: str
     media_bucket: str

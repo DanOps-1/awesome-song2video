@@ -36,6 +36,7 @@ class TwelveLabsClient:
         self._client: Any | None = None
         self._base_urls = self._build_base_url_chain()
         self._base_url_index = -1
+        self._audio_enabled = self._settings.tl_audio_search_enabled
         self._current_base_url: str | None = None
         if self._live_enabled:
             self._advance_client()
@@ -45,11 +46,7 @@ class TwelveLabsClient:
             logger.info("twelvelabs.mock_search", query=query)
             return self._mock_results(query, limit)
 
-        option_chain: list[list[str]] = [
-            ["visual", "audio"],
-            ["audio"],
-            ["visual"],
-        ]
+        option_chain = self._build_option_chain()
         rate_key = f"tl-search:{self._index_id}"
 
         async def _run_with_options(options: list[str]) -> list[dict[str, Any]]:
@@ -213,6 +210,15 @@ class TwelveLabsClient:
                 self._base_url_index += 1
         self._client = None
         return False
+
+    def _build_option_chain(self) -> list[list[str]]:
+        if not self._audio_enabled:
+            return [["visual"]]
+        return [
+            ["visual", "audio"],
+            ["audio"],
+            ["visual"],
+        ]
 
 
 client = TwelveLabsClient()

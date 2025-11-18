@@ -80,6 +80,9 @@ cp .env.example .env
 - `REDIS_URL`: Redis 连接地址
 - `FALLBACK_VIDEO_ID`: 备用视频 ID
 
+可选的环境变量：
+- `TL_AUDIO_SEARCH_ENABLED`: 是否启用音频模态（audio modal）匹配，默认 `false`，仅在明确需要音频 embedding 时开启，以免消耗额外配额。
+
 ### 运行
 
 ```bash

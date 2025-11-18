@@ -119,10 +119,16 @@ class TimelineBuilder:
 class TwelveLabsClient:
     async def search_segments(self, query: str, limit: int = 5):
         # ⭐⭐⭐ 真正调用 TwelveLabs SDK 的地方！
+        option_chain = (
+            [["visual", "audio"], ["audio"], ["visual"]]
+            if self._audio_enabled
+            else [["visual"]]  # 默认仅视觉匹配
+        )
+        # 实际实现中会按 option_chain 轮询
         pager = self._client.search.query(
             index_id=self._index_id,
             query_text=query,
-            search_options=["visual", "audio"],
+            search_options=option_chain[0],
             group_by="clip",
             page_limit=max(limit, 10),
         )
@@ -202,6 +208,7 @@ def __init__(self):
 TL_API_KEY=tlk_xxx
 TL_INDEX_ID=6911aaadd68fb776bc1bd8e7
 TL_LIVE_ENABLED=true
+TL_AUDIO_SEARCH_ENABLED=false
 ```
 
 #### 2. `search_segments()` - 搜索视频片段
@@ -212,12 +219,12 @@ async def search_segments(self, query: str, limit: int = 5):
     if not self._live_enabled:
         return self._mock_results(query, limit)
 
-    # 多选项重试策略
-    option_chain = [
-        ["visual", "audio"],  # 先试视频+音频
-        ["audio"],            # 再试纯音频
-        ["visual"],           # 最后试纯视频
-    ]
+    # 多选项重试策略（默认仅视觉，配置开启时再加入音频）
+    option_chain = (
+        [["visual", "audio"], ["audio"], ["visual"]]
+        if self._audio_enabled
+        else [["visual"]]
+    )
 
     for options in option_chain:
         try:
@@ -524,7 +531,7 @@ def _mock_results(self, query, limit):
 pager = self._client.search.query(
     index_id=self._index_id,
     query_text=query,
-    search_options=["visual", "audio"],
+    search_options=["visual"],  # 默认仅视觉；设置 TL_AUDIO_SEARCH_ENABLED=true 才会附加 audio
     group_by="clip",
     page_limit=10,
 )
@@ -553,7 +560,7 @@ pager = self._client.search.query(
 ### ✅ 生产代码特点
 
 - ✅ 支持 Mock 模式，方便开发测试
-- ✅ 多选项重试（visual+audio → audio → visual）
+- ✅ 默认仅视觉匹配，可配置开启 visual+audio → audio → visual 的重试链路
 - ✅ 优雅降级（有 clips 用 clips，没有用 item）
 - ✅ 速率限制和故障转移
 - ✅ 结构化日志记录

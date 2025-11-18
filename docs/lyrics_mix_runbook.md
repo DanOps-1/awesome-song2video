@@ -65,6 +65,7 @@
 ## 真实 TwelveLabs / FFmpeg 集成提示
 
 - **启用真实匹配**：设置 `TL_ENABLE_LIVE=true` 后，`TimelineBuilder` 将使用 TwelveLabs SDK；若调用失败，会自动降级到本地 mock 并在日志中标记 `twelvelabs.search_failed`。
+- **启用音频匹配**：仅当索引已写入音频模态（audio modal）向量且确有需求时，将 `TL_AUDIO_SEARCH_ENABLED=true`，否则保持默认 `false` 仅使用视觉模态，避免浪费配额。
 - **本地素材映射**：`source_video_id` 会按照 `<video_asset_dir>/<video_id>.mp4` 查找文件（示例：`tom` → `media/video/tom.mp4`）。若使用 MinIO，请确保相同命名的对象存在。
 - **缺失素材下发**：渲染 Worker 默认使用 `retrieve` API 获取 `hls.video_url`，直接从 HLS 按需拉取 `start/end` 时间段到临时文件（日志 `twelvelabs.video_clip`），不会长久保存整段 MP4；若本地已放置全量素材，则优先使用本地文件截取片段。
 - **FFmpeg 依赖**：Worker 默认调用系统 `ffmpeg`。如需不同路径，可在部署脚本中调整 `PATH` 或将命令改写为绝对路径。
