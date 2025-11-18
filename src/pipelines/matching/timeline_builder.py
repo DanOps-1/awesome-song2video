@@ -13,6 +13,7 @@ import structlog
 from src.infra.config.settings import get_settings
 from src.pipelines.lyrics_ingest.transcriber import transcribe_with_timestamps
 from src.services.matching.twelvelabs_client import client
+from src.services.matching.query_rewriter import QueryRewriter
 
 
 @dataclass
@@ -35,9 +36,13 @@ class TimelineBuilder:
         self._candidate_cache: dict[tuple[str, int], list[dict[str, Any]]] = {}
         self._logger = structlog.get_logger(__name__)
         self._split_pattern = re.compile(r"(?:\r?\n)+|[，,。！？!?；;…]")
+        self._rewriter = QueryRewriter()
+        # 追踪已使用的视频片段，避免重复：key = (video_id, start_ms), value = 使用次数
+        self._used_segments: dict[tuple[str, int], int] = {}
 
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
+        self._used_segments.clear()  # 重置已使用片段追踪
         segments: list[dict[str, Any]] = []
         if audio_path:
             raw_segments = await transcribe_with_timestamps(audio_path)
@@ -66,14 +71,25 @@ class TimelineBuilder:
                 end_ms = start_ms + 1000
             else:
                 end_ms = int(float(end_value) * 1000)
-            candidates = await self._get_candidates(text, limit=3)
+            # 获取更多候选片段以支持去重选择（增加到20个以提供更多去重空间）
+            candidates = await self._get_candidates(text, limit=20)
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
+
+            # 选择未使用或使用次数最少的片段
+            selected_candidates = self._select_diverse_candidates(normalized, limit=3)
+
+            # 标记第一个候选片段为已使用（渲染时默认使用第一个）
+            if selected_candidates:
+                first = selected_candidates[0]
+                segment_key = (str(first.get("source_video_id")), int(first.get("start_time_ms", 0)))
+                self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+
             timeline.lines.append(
                 TimelineLine(
                     text=text,
                     start_ms=start_ms,
                     end_ms=end_ms,
-                    candidates=normalized,
+                    candidates=selected_candidates,
                 )
             )
         return timeline
@@ -82,17 +98,40 @@ class TimelineBuilder:
         self, raw_candidates: list[dict[str, int | float | str]], start_ms: int, end_ms: int
     ) -> list[dict[str, int | float | str]]:
         def _candidate_defaults(candidate: dict[str, int | float | str]) -> dict[str, int | float | str]:
-            start = int(candidate.get("start", start_ms))
-            end = int(candidate.get("end", end_ms))
-            if self._use_mock_segments:
-                start = start_ms
-                end = end_ms
+            # 🔧 修复: 从 API 返回片段的中间位置截取，以获得最匹配的画面
+            # 原因：AI 匹配的精彩画面往往在片段中间，而不是开头
+            api_start = int(candidate.get("start", start_ms))
+            api_end = int(candidate.get("end", end_ms))
+            lyric_duration = end_ms - start_ms
+
+            # 计算API片段的中间位置
+            api_duration = api_end - api_start
+            api_middle = api_start + (api_duration // 2)
+
+            # 从中间位置向前偏移一半歌词时长，使歌词时长居中
+            clip_start = api_middle - (lyric_duration // 2)
+            clip_end = clip_start + lyric_duration
+
+            # 确保不会超出原始片段范围
+            if clip_start < api_start:
+                clip_start = api_start
+                clip_end = min(api_start + lyric_duration, api_end)
+            elif clip_end > api_end:
+                clip_end = api_end
+                clip_start = max(api_end - lyric_duration, api_start)
+
             return {
                 "id": str(uuid4()),
                 "source_video_id": candidate.get("video_id", self._settings.fallback_video_id),
-                "start_time_ms": start,
-                "end_time_ms": end,
+                "start_time_ms": clip_start,              # 从中间位置开始截取
+                "end_time_ms": clip_end,                  # 保持歌词时长
                 "score": candidate.get("score", 0.0),
+                # 保留原始数据供参考
+                "api_start_ms": api_start,
+                "api_end_ms": api_end,
+                "api_middle_ms": api_middle,
+                "lyric_start_ms": start_ms,
+                "lyric_end_ms": end_ms,
             }
 
         if raw_candidates:
@@ -108,9 +147,63 @@ class TimelineBuilder:
         ]
 
     async def _get_candidates(self, text: str, limit: int) -> list[dict[str, Any]]:
+        """
+        获取候选片段，使用智能重试降级策略：
+        1. 原始查询 → 有候选 → 使用
+        2. 原始查询 → 无候选 → AI改写（第1次） → 重试
+        3. 仍无候选 → AI改写（第2次，通用化） → 重试
+        4. 仍无候选 → AI改写（第3次，极简化） → 重试
+        5. 仍无候选 → 返回空（使用fallback）
+        """
         key = (text, limit)
         if key not in self._candidate_cache:
-            self._candidate_cache[key] = await client.search_segments(text, limit=limit)
+            # 第一步：尝试原始查询
+            candidates = await client.search_segments(text, limit=limit)
+
+            # 第二步：如果无候选且启用了改写，智能重试改写
+            if not candidates and self._rewriter._enabled:
+                max_attempts = self._settings.query_rewrite_max_attempts
+
+                for attempt in range(max_attempts):
+                    self._logger.info(
+                        "timeline_builder.fallback_to_rewrite",
+                        original=text[:30],
+                        attempt=attempt + 1,
+                        max_attempts=max_attempts,
+                    )
+
+                    rewritten_query = await self._rewriter.rewrite(text, attempt=attempt)
+
+                    # 如果改写后的查询不同，则重试
+                    if rewritten_query != text:
+                        candidates = await client.search_segments(rewritten_query, limit=limit)
+                        self._logger.info(
+                            "timeline_builder.rewrite_result",
+                            original=text[:30],
+                            rewritten=rewritten_query[:30],
+                            attempt=attempt + 1,
+                            count=len(candidates),
+                        )
+
+                        # 如果找到候选，立即退出循环
+                        if candidates:
+                            self._logger.info(
+                                "timeline_builder.rewrite_success",
+                                original=text[:30],
+                                attempt=attempt + 1,
+                                final_query=rewritten_query[:50],
+                                count=len(candidates),
+                            )
+                            break
+                    else:
+                        self._logger.warning(
+                            "timeline_builder.rewrite_identical",
+                            original=text[:30],
+                            attempt=attempt + 1,
+                        )
+
+            self._candidate_cache[key] = candidates
+
         candidates = [candidate.copy() for candidate in self._candidate_cache[key]]
         count = len(candidates)
         log_method = self._logger.warning if count == 0 else self._logger.info
@@ -121,6 +214,66 @@ class TimelineBuilder:
             use_mock=self._use_mock_segments,
         )
         return candidates
+
+    def _select_diverse_candidates(
+        self, candidates: list[dict[str, int | float | str]], limit: int
+    ) -> list[dict[str, int | float | str]]:
+        """
+        从候选列表中选择多样化的片段，尽量避免重复使用相同的视频片段。
+
+        策略：
+        1. 优先选择未使用过的片段
+        2. 如果没有未使用的片段，允许使用次数最少的片段（避免完全无片段可用）
+        3. 按评分排序选择最佳的
+        """
+        if not candidates:
+            return []
+
+        # 为每个候选片段计算使用次数和评分
+        candidates_with_usage = []
+        for candidate in candidates:
+            video_id = str(candidate.get("source_video_id", ""))
+            start_ms = int(candidate.get("start_time_ms", 0))
+            segment_key = (video_id, start_ms)
+            usage_count = self._used_segments.get(segment_key, 0)
+
+            candidates_with_usage.append({
+                "candidate": candidate,
+                "usage_count": usage_count,
+                "score": float(candidate.get("score", 0.0)),
+            })
+
+        # 排序策略：
+        # 1. 使用次数少的优先（usage_count升序）
+        # 2. 相同使用次数时，score高的优先（score降序）
+        candidates_with_usage.sort(key=lambda x: (x["usage_count"], -x["score"]))
+
+        # 提取候选片段并限制数量
+        selected = [item["candidate"] for item in candidates_with_usage[:limit]]
+
+        # 记录日志
+        if candidates_with_usage:
+            first_usage = candidates_with_usage[0]["usage_count"]
+            unused_count = sum(1 for item in candidates_with_usage if item["usage_count"] == 0)
+
+            if first_usage > 0:
+                self._logger.warning(
+                    "timeline_builder.reuse_segment",
+                    total_candidates=len(candidates),
+                    unused_count=unused_count,
+                    selected_usage_count=first_usage,
+                    message=f"候选不足，重复使用片段（已使用{first_usage}次）",
+                )
+            else:
+                self._logger.info(
+                    "timeline_builder.diversity_selection",
+                    total_candidates=len(candidates),
+                    unused_count=unused_count,
+                    selected_count=len(selected),
+                    message=f"从{unused_count}个未使用片段中选择了{len(selected)}个",
+                )
+
+        return selected
 
     def _explode_segments(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         exploded: list[dict[str, Any]] = []

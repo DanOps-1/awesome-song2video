@@ -33,6 +33,10 @@ class AppSettings(BaseSettings):
     render_concurrency_limit: int = 3
     otel_endpoint: str = "http://localhost:4317"
     default_locale: str = "zh-CN"
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    query_rewrite_enabled: bool = True
+    query_rewrite_max_attempts: int = 3  # 最多尝试改写次数
 
 
 @lru_cache()

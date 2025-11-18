@@ -26,6 +26,7 @@ dependencies = [
   "structlog>=23.2.0",
   "aiosqlite>=0.19.0",
   "minio>=7.2.7",
+  "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
