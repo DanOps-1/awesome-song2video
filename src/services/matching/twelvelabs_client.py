@@ -25,6 +25,7 @@ class TwelveLabsMatch:
     start: int
     end: int
     score: float
+    rank: int | None = None
     preview: str | None = None
 
 
@@ -117,6 +118,7 @@ class TwelveLabsClient:
                     start=start,
                     end=start + 1500,
                     score=round(random.uniform(0.6, 0.95), 2),
+                    rank=idx + 1,
                 )
             )
         return [
@@ -126,6 +128,7 @@ class TwelveLabsClient:
                 "start": match.start,
                 "end": match.end,
                 "score": match.score,
+                "rank": match.rank,
             }
             for match in matches
         ]
@@ -138,6 +141,7 @@ class TwelveLabsClient:
                     "twelvelabs.raw_item",
                     video_id=getattr(item, "video_id", None),
                     score=getattr(item, "score", None),
+                    rank=getattr(item, "rank", None),
                     clips_count=len(getattr(item, "clips", []) or []),
                 )
             except Exception:  # noqa: BLE001
@@ -145,11 +149,27 @@ class TwelveLabsClient:
             clips = getattr(item, "clips", None) or []
             if clips:
                 for clip in clips:
-                    results.append(self._build_candidate_dict(clip.video_id or item.video_id, clip.start, clip.end, clip.score))
+                    results.append(
+                        self._build_candidate_dict(
+                            clip.video_id or item.video_id,
+                            clip.start,
+                            clip.end,
+                            getattr(clip, "score", None),
+                            getattr(clip, "rank", None),
+                        )
+                    )
                     if len(results) >= limit:
                         return results
             else:
-                results.append(self._build_candidate_dict(getattr(item, "video_id", None), getattr(item, "start", None), getattr(item, "end", None), getattr(item, "score", None)))
+                results.append(
+                    self._build_candidate_dict(
+                        getattr(item, "video_id", None),
+                        getattr(item, "start", None),
+                        getattr(item, "end", None),
+                        getattr(item, "score", None),
+                        getattr(item, "rank", None),
+                    )
+                )
             if len(results) >= limit:
                 break
         return results
@@ -160,18 +180,32 @@ class TwelveLabsClient:
         start_seconds: float | None,
         end_seconds: float | None,
         score: float | None,
+        rank: int | None,
     ) -> dict[str, Any]:
         start_ms = int((start_seconds or 0.0) * 1000)
         end_ms = int((end_seconds or 0.0) * 1000)
         if end_ms <= start_ms:
             end_ms = start_ms + 1000
+        normalized_score = self._normalize_score(score, rank)
         return {
             "id": str(uuid4()),
             "video_id": video_id or self._settings.fallback_video_id,
             "start": start_ms,
             "end": end_ms,
-            "score": score or 0.0,
+            "score": normalized_score,
+            "rank": rank,
         }
+
+    @staticmethod
+    def _normalize_score(score: float | None, rank: int | None) -> float:
+        if score is not None:
+            try:
+                return float(score)
+            except (TypeError, ValueError):  # noqa: BLE001
+                return 0.0
+        if rank is not None and rank > 0:
+            return round(1.0 / float(rank), 6)
+        return 0.0
 
     def _build_base_url_chain(self) -> list[str | None]:
         urls: list[str | None] = []
