@@ -3,7 +3,7 @@
 **分支**：`[###-feature-name]` | **日期**：[DATE] | **规格**：[link]
 **输入**：基于 `/specs/[###-feature-name]/spec.md` 的功能需求文档
 
-**提示**：本模板由 `/speckit.plan` 命令生成。填写内容必须使用简体中文，并明确说明如何满足宪章提出的异步、分层、测试、可观测性、媒资片段按需拉取、歌词细粒度分句与目录/命令一致性要求（`src/api/v1`、`src/domain/...`、`src/pipelines/...`、`src/infra/...`、`src/workers/...`、`tests/...` 以及 `uvicorn/arq/pytest/scripts/dev/seed_demo.sh` 等需逐一说明豁免与调整）。
+**提示**：本模板由 `/speckit.plan` 命令生成。填写内容必须使用简体中文，并明确说明如何满足宪章提出的异步、分层、测试、可观测性、查询改写与 LLM 使用、媒资片段按需拉取、歌词细粒度分句、片段去重/语义对齐以及目录/命令一致性要求（`src/api/v1`、`src/domain/...`、`src/pipelines/...`、`src/infra/...`、`src/workers/...`、`tests/...` 以及 `uvicorn/arq/pytest/scripts/dev/seed_demo.sh` 等需逐一说明豁免与调整）。
 
 ## 摘要
 
@@ -22,7 +22,7 @@
 **性能目标**：写明吞吐、延迟、并发容量或业务指标。
 **约束**：内存、时延、安全、合规或第三方协议限制。
 **规模/范围**：预计模块数、用户量、接口数等量化范围。
-**运行命令**：列出本功能涉及的开发/运维命令（`uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy`、`scripts/dev/seed_demo.sh` 等），如需新增或替换必须说明原因；涉及媒资片段拉取或歌词分句的流水线需写明触发入口、清理策略与指标记录。
+**运行命令**：列出本功能涉及的开发/运维命令（`uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy`、`scripts/dev/seed_demo.sh` 等），如需新增或替换必须说明原因；涉及媒资片段拉取、歌词分句、查询改写或片段去重的流水线需写明触发入口、清理策略与指标记录（含改写触发次数、成功率与去重率等）。
 
 ## 宪章符合性检查
 

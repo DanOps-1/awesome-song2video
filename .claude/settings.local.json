@@ -22,7 +22,18 @@
       "Bash(ls:*)",
       "WebFetch(domain:docs.twelvelabs.io)",
       "Bash(.specify/scripts/bash/setup-plan.sh:*)",
-      "Bash(.specify/scripts/bash/update-agent-context.sh:*)"
+      "Bash(.specify/scripts/bash/update-agent-context.sh:*)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(python3:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(find:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(system_profiler:*)",
+      "Bash(sysctl:*)"
     ],
     "deny": [],
     "ask": []

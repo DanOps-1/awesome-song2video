@@ -119,100 +119,87 @@ class QueryRewriter:
         return rewritten.strip()
 
     def _get_rewrite_strategy(self, attempt: int) -> str:
-        """
-        根据尝试次数返回不同的改写策略。
+            """
+            根据尝试次数返回不同的改写策略。
+            
+            注意：指令是中文的，但要求模型输出英文搜索词（以获得更好的向量匹配效果）。
+            如果你使用的是纯中文向量模型（如 Taiyi 或 AltCLIP），请将提示词中的"英文"改为"中文"。
+            """
 
-        策略演进：
-        - 第0次：具体视觉描述（默认）
-        - 第1次：通用情感场景（去专业化）
-        - 第2次：简化关键词
-        - 第3次及以上：极简抽象概念
-        """
-        strategies = {
-            0: """你是一个视频搜索查询优化专家。
+            # 策略 0: 电影导演模式 (Cinematic Mode)
+            # 核心：意象具象化。把"悲伤"变成"下雨的窗户"，增加光影和镜头感。
+            strategy_0 = """你是一位专业的 AI 音乐视频（MV）导演。
+    你的任务是将抽象的歌词转化为**详细的、电影感的英文画面描述**，以便视频搜索引擎能够找到匹配的素材。
 
-你的任务是将抽象、隐喻、情感化的歌词转换为具体的、可视化的场景描述，以便视频搜索引擎能够找到匹配的画面。
+    关键规则：
+    1. **输出单个自然的英文句子**。不要输出逗号分隔的标签。
+    2. **意象具象化（最重要）：** 如果歌词很抽象（例如"我的心冷得像冰"），请描述一个代表该意境的视觉场景（例如"A lonely figure standing in a snowy street under a blue street light"）。不要直译隐喻。
+    3. **包含电影细节：** 必须提及光线（如 cinematic lighting, dark, sunny）、景别（如 close-up, wide shot）和动态（如 slow motion, running）。
+    4. **不要解释：** 不要出现 "metaphor for..." 或 "symbolizes..." 之类的词，直接描述眼睛能看到的画面。
 
-转换规则：
-1. 识别歌词中的情感、隐喻和抽象概念
-2. 将它们转化为具体的视觉元素：人物、动作、场景、表情、氛围
-3. 保持简洁，只输出关键视觉描述词
-4. 用英文逗号分隔多个描述
-5. 不要添加任何解释或额外文字
+    示例：
+    输入："I can't lose nothing twice"
+    输出："A close-up shot of a man with a devastated expression sitting in a dark room, high contrast lighting, cinematic style."
 
-示例：
-输入："I can't lose nothing twice"
-输出："sad person, defeated expression, sitting alone, dark mood, looking down"
+    输入："But I'm standing with the weight"
+    输出："A low-angle shot of a tired person walking slowly down a rainy street, carrying a heavy backpack, exhausted posture."
 
-输入："But I'm standing with the weight"
-输出："person struggling, heavy burden, tired face, stressful situation, carrying weight"
+    输入："城市依然在沉睡"
+    输出："A quiet city street at dawn, empty roads, soft blue morning light, static shot."
 
-输入："我的心像海"
-输出："calm ocean, vast water, peaceful scene, blue waves, serene mood"
+    当前歌词："""
 
-现在处理下面的歌词：""",
+            # 策略 1: 动作聚焦模式 (Action Mode)
+            # 核心：当复杂描述搜不到时，简化为"谁+做什么"。
+            strategy_1 = """你是一个视频检索助手。
+    上一次的搜索过于复杂，没有找到结果。现在，请将歌词简化为**对物理动作或清晰情绪的简单英文描述**。
 
-            1: """你是一个视频搜索查询优化专家。
+    规则：
+    1. 只关注**主体（Who）**和**动作（What）**。
+    2. 去掉光影、镜头角度、艺术风格等修饰词。
+    3. 保持描述通用、宽泛。
+    4. 输出简单的英文句子。
 
-这是第二次改写尝试。上一次的改写可能过于具体或专业化，导致没有匹配结果。
+    示例：
+    输入："I'm fighting a war inside my head"
+    输出："A person holding their head in pain and looking stressed."
 
-新的改写策略：
-1. 避免专业场景（如"士兵"、"战场"、"手术"等），改用通用场景
-2. 聚焦于**情感状态**和**日常动作**
-3. 使用更常见的场景和人物
-4. 简化描述，只保留最核心的视觉元素
-5. 用英文逗号分隔
+    输入："Running away from the truth"
+    输出："A person running fast down a street."
 
-示例：
-输入："soldier in pain, battlefield"（第一次改写失败）
-输出："person in pain, struggling, worried expression, difficult situation"
+    输入："阳光洒在我的脸上"
+    输出："A happy person looking up at the sky smiling."
 
-输入："paying bills, calendar"（第一次改写失败）
-输出："stressed person, worried face, paperwork, tense moment"
+    当前歌词："""
 
-输入："praying with hands"（第一次改写失败）
-输出："person sitting quietly, peaceful expression, closed eyes, calm atmosphere"
+            # 策略 2: 极简物体模式 (Object Mode)
+            # 核心：兜底策略，只搜画面里肯定有的东西。
+            strategy_2 = """你是一个关键词提取器。
+    之前的搜索都失败了。我们需要找到任何相关的素材。
+    请提取歌词中暗示的最具体的**物理物体**或**基本场景**，并翻译成英文。
 
-现在重新改写下面的歌词（使用更通用的场景）：""",
+    规则：
+    1. 只输出 2-3 个具体的英文名词或短语。
+    2. 不要包含情绪，不要包含动作，只要物体。
+    3. 格式：英文单词或短语。
 
-            2: """你是一个视频搜索查询优化专家。
+    示例：
+    输入："Driving down the highway of life"
+    输出："highway, car"
 
-这是第三次改写尝试。前两次都没有找到匹配。
+    输入："Time is ticking away"
+    输出："clock on wall"
 
-新的改写策略 - **极简关键词**：
-1. 只使用3-5个最核心的关键词
-2. 聚焦于**表情、动作、情绪**
-3. 避免具体场景，只描述人物状态
-4. 用英文逗号分隔
+    输入："碎片散落一地"
+    输出："broken glass, floor"
 
-示例：
-输入："working hands, manual labor, tools"（前两次失败）
-输出："busy hands, working, focused"
+    当前歌词："""
 
-输入："money slipping, financial stress"（前两次失败）
-输出："worried person, stressed, upset"
+            strategies = {
+                0: strategy_0,
+                1: strategy_1,
+                2: strategy_2
+            }
 
-输入："couple embracing, romantic"（前两次失败）
-输出："happy people, smiling, together"
-
-现在用极简方式改写下面的歌词（只保留核心词）：""",
-        }
-
-        # 第3次及以上使用最简策略
-        if attempt >= 3:
-            return """你是一个视频搜索查询优化专家。
-
-这已经是多次改写尝试。使用**最简单最通用**的关键词：
-
-改写要求：
-1. 只使用2-3个最常见的单词
-2. 只描述基本情绪或动作
-3. 避免任何专业或特殊场景
-
-示例：
-输入："任何复杂的歌词"
-输出："happy person" 或 "sad person" 或 "person walking" 或 "people talking"
-
-现在用最简单的词改写："""
-
-        return strategies.get(attempt, strategies[0])
+            # 超过2次尝试，默认使用策略2
+            return strategies.get(attempt, strategy_2)
