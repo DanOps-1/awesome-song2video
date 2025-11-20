@@ -372,11 +372,29 @@ def _format_timestamp(ms: int) -> str:
 def _run_ffmpeg(cmd: list[str]) -> None:
     try:
         logger.info("render_worker.ffmpeg", cmd=" ".join(cmd))
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except FileNotFoundError:
-        logger.error("ffmpeg.not_found", cmd=cmd)
-    except subprocess.CalledProcessError as exc:  # noqa: BLE001
-        logger.error("ffmpeg.failed", returncode=exc.returncode, cmd=cmd)
+        result = subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        logger.error("ffmpeg.not_found", cmd=cmd, error=str(exc))
+        raise RuntimeError(f"FFmpeg not found. Please install ffmpeg: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr_output = exc.stderr if exc.stderr else "No error output"
+        logger.error(
+            "ffmpeg.failed",
+            returncode=exc.returncode,
+            cmd=cmd,
+            stderr=stderr_output[:500],  # 只记录前500字符
+        )
+        raise RuntimeError(
+            f"FFmpeg command failed with return code {exc.returncode}.\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"Error: {stderr_output}"
+        ) from exc
 
 
 def _calculate_alignment(lines: Iterable[RenderLine]) -> dict[str, float]:
