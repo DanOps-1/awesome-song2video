@@ -119,87 +119,95 @@ class QueryRewriter:
         return rewritten.strip()
 
     def _get_rewrite_strategy(self, attempt: int) -> str:
-            """
-            根据尝试次数返回不同的改写策略。
-            
-            注意：指令是中文的，但要求模型输出英文搜索词（以获得更好的向量匹配效果）。
-            如果你使用的是纯中文向量模型（如 Taiyi 或 AltCLIP），请将提示词中的"英文"改为"中文"。
-            """
+        """
+        根据尝试次数返回不同的改写策略。
 
-            # 策略 0: 电影导演模式 (Cinematic Mode)
-            # 核心：意象具象化。把"悲伤"变成"下雨的窗户"，增加光影和镜头感。
-            strategy_0 = """你是一位专业的 AI 音乐视频（MV）导演。
-    你的任务是将抽象的歌词转化为**详细的、电影感的英文画面描述**，以便视频搜索引擎能够找到匹配的素材。
+        针对快节奏混剪（Mashup）优化：
+        - 策略 0：极致的字面意思（Literal B-Roll）。歌词说什么物体，就给什么物体。
+        - 策略 1：动作与视觉冲击（High Impact Action）。如果字面无法搜到，搜动作。
+        - 策略 2：极简名词（Keywords）。
+        """
 
-    关键规则：
-    1. **输出单个自然的英文句子**。不要输出逗号分隔的标签。
-    2. **意象具象化（最重要）：** 如果歌词很抽象（例如"我的心冷得像冰"），请描述一个代表该意境的视觉场景（例如"A lonely figure standing in a snowy street under a blue street light"）。不要直译隐喻。
-    3. **包含电影细节：** 必须提及光线（如 cinematic lighting, dark, sunny）、景别（如 close-up, wide shot）和动态（如 slow motion, running）。
-    4. **不要解释：** 不要出现 "metaphor for..." 或 "symbolizes..." 之类的词，直接描述眼睛能看到的画面。
+        # 策略 0: 字面素材模式 (Literal B-Roll Mode)
+        # 核心：拒绝隐喻。歌词提到"火"就搜"火"，提到"跑"就搜"跑"。
+        strategy_0 = """你是一位专门制作**快节奏混剪视频（Mashup）**的素材搜索专家。
+你的任务是根据歌词，生成最直接、最字面的英文画面描述（B-Roll Footage）。
 
-    示例：
-    输入："I can't lose nothing twice"
-    输出："A close-up shot of a man with a devastated expression sitting in a dark room, high contrast lighting, cinematic style."
+**核心原则：字面对应（Literal Matching）**
+混剪视频节奏很快，画面必须与歌词中的**名词**或**动词**直接对应，观众才能瞬间看懂。
 
-    输入："But I'm standing with the weight"
-    输出："A low-angle shot of a tired person walking slowly down a rainy street, carrying a heavy backpack, exhausted posture."
+**严格规则：**
+1. **拒绝隐喻：** 如果歌词是"我的心在燃烧"，不要搜"伤心的人"，要搜"Fire burning"（火焰）。如果歌词是"时间流逝"，要搜"Clock ticking"（时钟）。
+2. **提取视觉实体：** 找出歌词中最具象的物体（名词）或动作（动词）。
+3. **画面填满：** 描述要具体，强调特写（Close-up）或具有视觉冲击力的画面。
+4. **输出格式：** 一个简短、有力的英文句子。
 
-    输入："城市依然在沉睡"
-    输出："A quiet city street at dawn, empty roads, soft blue morning light, static shot."
+**示例：**
+输入："熊熊火焰燃烧" (Raging fire)
+输出："A large fire burning intensely, flames filling the screen, close-up."
 
-    当前歌词："""
+输入："打碎这枷锁" (Break the chains)
+输出："Metal chains breaking, iron links shattering, slow motion."
 
-            # 策略 1: 动作聚焦模式 (Action Mode)
-            # 核心：当复杂描述搜不到时，简化为"谁+做什么"。
-            strategy_1 = """你是一个视频检索助手。
-    上一次的搜索过于复杂，没有找到结果。现在，请将歌词简化为**对物理动作或清晰情绪的简单英文描述**。
+输入："开着车去远方" (Driving far away)
+输出："A car driving fast on a highway, motion blur, POV shot."
 
-    规则：
-    1. 只关注**主体（Who）**和**动作（What）**。
-    2. 去掉光影、镜头角度、艺术风格等修饰词。
-    3. 保持描述通用、宽泛。
-    4. 输出简单的英文句子。
+输入："时间不够了" (Time is running out)
+输出："A clock ticking fast, time lapse, hourglass sand falling."
 
-    示例：
-    输入："I'm fighting a war inside my head"
-    输出："A person holding their head in pain and looking stressed."
+输入："我的心像石头" (Heart like a stone)
+输出："A large grey stone on the ground, static shot, realistic texture." (注意：这里要真的石头，不要隐喻)
 
-    输入："Running away from the truth"
-    输出："A person running fast down a street."
+当前歌词："""
 
-    输入："阳光洒在我的脸上"
-    输出："A happy person looking up at the sky smiling."
+        # 策略 1: 动态氛围模式 (Dynamic Vibe Mode)
+        # 核心：当歌词完全抽象（没有物体）时，使用高动态的通用画面。
+        strategy_1 = """你是一个视频素材助理。
+上一轮的"字面搜索"失败了（可能歌词太抽象，没有具体物体）。
+现在，请将歌词转化为具有**强烈视觉冲击力**或**特定氛围**的英文描述。
 
-    当前歌词："""
+**规则：**
+1. 如果没有具体物体，描述一个符合歌曲情绪的**通用高动态场景**（如：奔跑、下雨、城市车流、爆炸）。
+2. 重点关注**动态（Movement）**：Mashup 需要画面是动的，不要静态图。
+3. 保持描述简短有力。
 
-            # 策略 2: 极简物体模式 (Object Mode)
-            # 核心：兜底策略，只搜画面里肯定有的东西。
-            strategy_2 = """你是一个关键词提取器。
-    之前的搜索都失败了。我们需要找到任何相关的素材。
-    请提取歌词中暗示的最具体的**物理物体**或**基本场景**，并翻译成英文。
+**示例：**
+输入："I can't take it anymore" (情绪崩溃)
+输出："Person screaming underwater, bubbles rising, chaotic movement." (具象化情绪)
 
-    规则：
-    1. 只输出 2-3 个具体的英文名词或短语。
-    2. 不要包含情绪，不要包含动作，只要物体。
-    3. 格式：英文单词或短语。
+输入："Love is in the air" (抽象)
+输出："Pink clouds moving fast in the sky, time lapse, dreamy atmosphere." (氛围化)
 
-    示例：
-    输入："Driving down the highway of life"
-    输出："highway, car"
+输入："Everything is changing" (抽象)
+输出："City traffic time lapse at night, fast lights, busy street." (通用动态)
 
-    输入："Time is ticking away"
-    输出："clock on wall"
+当前歌词："""
 
-    输入："碎片散落一地"
-    输出："broken glass, floor"
+        # 策略 2: 极简物体兜底 (Object Keywords)
+        # 核心：只要画面里有这个东西就行。
+        strategy_2 = """你是一个关键词提取器。
+搜索非常困难。请直接提取歌词中任何**可见的物理物体**，翻译成英文。
 
-    当前歌词："""
+**规则：**
+1. 只输出 1-2 个英文名词。
+2. 不要动作，不要形容词，只要物体。
 
-            strategies = {
-                0: strategy_0,
-                1: strategy_1,
-                2: strategy_2
-            }
+**示例：**
+输入："手里的玫瑰已枯萎"
+输出："dead rose"
 
-            # 超过2次尝试，默认使用策略2
-            return strategies.get(attempt, strategy_2)
+输入："像子弹一样穿过"
+输出："flying bullet"
+
+输入："透过窗户看世界"
+输出："window, glass"
+
+当前歌词："""
+
+        strategies = {
+            0: strategy_0,
+            1: strategy_1,
+            2: strategy_2
+        }
+
+        return strategies.get(attempt, strategy_2)

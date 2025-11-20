@@ -16,6 +16,28 @@ from src.services.matching.twelvelabs_client import client
 from src.services.matching.query_rewriter import QueryRewriter
 
 
+def calculate_overlap_ratio(start1: int, end1: int, start2: int, end2: int) -> float:
+    """计算两个时间段的重叠比例。
+
+    返回: 重叠部分占较短片段的比例 (0.0 到 1.0)
+    """
+    overlap_start = max(start1, start2)
+    overlap_end = min(end1, end2)
+    overlap = max(0, overlap_end - overlap_start)
+
+    if overlap == 0:
+        return 0.0
+
+    duration1 = end1 - start1
+    duration2 = end2 - start2
+    shorter_duration = min(duration1, duration2)
+
+    if shorter_duration == 0:
+        return 0.0
+
+    return overlap / shorter_duration
+
+
 @dataclass
 class TimelineLine:
     text: str
@@ -43,8 +65,11 @@ class TimelineBuilder:
         self._logger = structlog.get_logger(__name__)
         self._split_pattern = re.compile(r"(?:\r?\n)+|[，,。！？!?；;…]")
         self._rewriter = QueryRewriter()
-        # 追踪已使用的视频片段，避免重复：key = (video_id, start_ms), value = 使用次数
-        self._used_segments: dict[tuple[str, int], int] = {}
+        # 追踪已使用的视频片段，避免重复
+        # key = (video_id, start_ms, end_ms), value = 使用次数
+        self._used_segments: dict[tuple[str, int, int], int] = {}
+        # 重叠阈值：零容忍！任何重叠都不允许
+        self._overlap_threshold = 0.0  # 任何重叠 > 0 就跳过
 
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
@@ -87,7 +112,11 @@ class TimelineBuilder:
             # 标记第一个候选片段为已使用（渲染时默认使用第一个）
             if selected_candidates:
                 first = selected_candidates[0]
-                segment_key = (str(first.get("source_video_id")), int(first.get("start_time_ms", 0)))
+                segment_key = (
+                    str(first.get("source_video_id")),
+                    int(first.get("start_time_ms", 0)),
+                    int(first.get("end_time_ms", 0)),
+                )
                 self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
 
             timeline.lines.append(
@@ -273,12 +302,40 @@ class TimelineBuilder:
         if not candidates:
             return []
 
-        # 为每个候选片段计算使用次数和评分
+        # 为每个候选片段计算使用次数和评分，并检测时间重叠
         candidates_with_usage: list[CandidateWithUsage] = []
         for candidate in candidates:
             video_id = str(candidate.get("source_video_id", ""))
             start_ms = int(candidate.get("start_time_ms", 0))
-            segment_key = (video_id, start_ms)
+            end_ms = int(candidate.get("end_time_ms", 0))
+
+            # 检查是否与已使用的片段有任何重叠（零容忍！）
+            has_overlap = False
+            overlapping_segment = None
+            for used_key in self._used_segments.keys():
+                used_video_id, used_start, used_end = used_key
+                if used_video_id == video_id:
+                    overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
+                    if overlap_ratio > 0:  # 任何重叠都不允许！
+                        has_overlap = True
+                        overlapping_segment = used_key
+                        self._logger.warning(
+                            "timeline_builder.overlap_rejected",
+                            video_id=video_id,
+                            start_ms=start_ms,
+                            end_ms=end_ms,
+                            overlapping_with=overlapping_segment,
+                            overlap_ratio=round(overlap_ratio, 3),
+                            message="零容忍策略：直接剔除任何有重叠的片段",
+                        )
+                        break
+
+            # 如果有任何重叠，直接跳过该片段（零容忍！）
+            if has_overlap:
+                continue  # 直接剔除，不添加到候选列表
+
+            # 检查精确匹配
+            segment_key = (video_id, start_ms, end_ms)
             usage_count = self._used_segments.get(segment_key, 0)
 
             candidates_with_usage.append({
