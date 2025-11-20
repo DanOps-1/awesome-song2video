@@ -10,8 +10,8 @@ from src.infra.config.settings import AppSettings
 class RenderClipConfig(BaseModel):
     """描述渲染阶段 clip 裁剪的运行参数。"""
 
-    max_parallelism: int = Field(..., ge=1, le=6)
-    per_video_limit: int = Field(..., ge=1, le=3)
+    max_parallelism: int = Field(..., ge=1, le=20)  # 提升上限到 20
+    per_video_limit: int = Field(..., ge=1, le=5)  # 提升上限到 5
     max_retry: int = Field(..., ge=0, le=5)
     placeholder_asset_path: str
     retry_backoff_base_ms: int = Field(..., ge=100)
