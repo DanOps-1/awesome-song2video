@@ -33,7 +33,9 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(system_profiler:*)",
-      "Bash(sysctl:*)"
+      "Bash(sysctl:*)",
+      "Bash(pytest:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

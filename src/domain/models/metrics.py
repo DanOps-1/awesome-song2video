@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class PreviewMetrics(TypedDict):
@@ -33,7 +33,7 @@ class PreviewMetrics(TypedDict):
     generated_at: str  # ISO 8601 format
 
 
-class RenderMetrics(TypedDict):
+class RenderMetrics(TypedDict, total=False):
     """Render 完成后的对齐指标。
 
     字段说明:
@@ -51,6 +51,7 @@ class RenderMetrics(TypedDict):
     total_duration_ms: int
     queued_at: str  # ISO 8601 format
     finished_at: str  # ISO 8601 format
+    clip_stats: dict[str, Any]
 
 
 def create_preview_metrics(

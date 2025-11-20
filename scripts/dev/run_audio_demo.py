@@ -35,7 +35,8 @@ def _patch_render_worker_tempdir() -> None:
     TEMP_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     class PersistentTempDir:
-        def __init__(self) -> None:
+        def __init__(self, dir: str | None = None) -> None:
+            # 忽略传入的 dir 参数，始终使用 TEMP_OUTPUT_DIR
             self.name = tempfile.mkdtemp(prefix="job_", dir=TEMP_OUTPUT_DIR.as_posix())
 
         def __enter__(self) -> str:  # pragma: no cover - 仅 Demo 使用

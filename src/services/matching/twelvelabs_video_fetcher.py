@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import random
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +28,8 @@ class TwelveLabsVideoFetcher:
         self._live_enabled = bool(self._settings.tl_live_enabled)
         self._base_urls = self._build_base_url_chain()
         self._stream_cache: dict[str, str] = {}
+        self._locks_lock = threading.Lock()
+        self._per_video_locks: dict[str, threading.Semaphore] = {}
 
     def fetch_clip(self, video_id: str, start_ms: int, end_ms: int, target: Path) -> Path | None:
         """按时间窗拉取视频片段到目标路径（仅临时使用，不保留全量文件）。"""
@@ -34,10 +39,22 @@ class TwelveLabsVideoFetcher:
 
         # 优先实时拉取 HLS 片段
         if self._live_enabled:
-            stream_url = self._get_stream_url(video_id)
-            if stream_url:
-                if self._cut_clip(stream_url, start_ms, end_ms, target, video_id):
-                    return target
+            lock = self._get_video_lock(video_id)
+            acquired = lock.acquire(blocking=False)
+            if not acquired:
+                logger.info(
+                    "twelvelabs.per_video_limit_wait",
+                    video_id=video_id,
+                    limit=self._settings.render_per_video_limit,
+                )
+                lock.acquire()
+            try:
+                stream_url = self._get_stream_url(video_id)
+                if stream_url:
+                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id):
+                        return target
+            finally:
+                lock.release()
 
         # 回退：若本地已有手动放置的全量文件，则从本地截取
         local_source = Path(self._settings.video_asset_dir) / f"{video_id}.mp4"
@@ -53,6 +70,7 @@ class TwelveLabsVideoFetcher:
         for base in self._base_urls:
             url = self._build_retrieve_url(base, video_id)
             try:
+                time.sleep(random.uniform(0, 0.5))
                 response = httpx.get(url, headers=headers, timeout=30.0)
                 response.raise_for_status()
                 logger.info("twelvelabs.retrieve_success", video_id=video_id, base_url=base or "default")
@@ -158,6 +176,12 @@ class TwelveLabsVideoFetcher:
         if not prefix.endswith("/v1.3"):
             prefix = f"{prefix}/v1.3"
         return f"{prefix}/indexes/{self._settings.tl_index_id}/videos/{video_id}"
+
+    def _get_video_lock(self, video_id: str) -> threading.Semaphore:
+        with self._locks_lock:
+            if video_id not in self._per_video_locks:
+                self._per_video_locks[video_id] = threading.Semaphore(self._settings.render_per_video_limit)
+            return self._per_video_locks[video_id]
 
 
 video_fetcher = TwelveLabsVideoFetcher()

@@ -20,7 +20,15 @@ class AppSettings(BaseSettings):
     tl_index_id: str = "6911aaadd68fb776bc1bd8e7"
     tl_live_enabled: bool = False
     tl_api_base_url: str | None = None
-    tl_audio_search_enabled: bool = False
+
+    # 搜索模态配置
+    tl_audio_search_enabled: bool = False  # 是否启用 audio 模态
+    tl_transcription_search_enabled: bool = False  # 是否启用 transcription 模态（仅 Marengo 3.0 索引支持）
+
+    # 高级搜索选项（Marengo 3.0）
+    tl_transcription_mode: Literal["lexical", "semantic", "both"] = "semantic"  # transcription 搜索模式
+    tl_search_operator: Literal["or", "and"] = "or"  # 多模态组合方式
+    tl_confidence_threshold: float = 0.0  # 置信度阈值 (0.0-1.0)
     postgres_dsn: str
     redis_url: str
     media_bucket: str
@@ -31,11 +39,19 @@ class AppSettings(BaseSettings):
     fallback_video_id: str = "broll"
     enable_async_queue: bool = False
     render_concurrency_limit: int = 3
+    render_clip_concurrency: int = 4
+    render_config_channel: str = "render:config"
+    render_per_video_limit: int = 2
+    render_max_retry: int = 2
+    render_retry_backoff_base_ms: int = 500
+    render_metrics_flush_interval_s: int = 5
+    placeholder_clip_path: str = "media/fallback/clip_placeholder.mp4"
     otel_endpoint: str = "http://localhost:4317"
     default_locale: str = "zh-CN"
     deepseek_api_key: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     query_rewrite_enabled: bool = True
+    query_rewrite_mandatory: bool = False  # 是否强制改写（第一次查询就改写，而非仅在无结果时）
     query_rewrite_max_attempts: int = 3  # 最多尝试改写次数
 
 

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -13,13 +16,13 @@ async def test_timeline_builder_returns_segments(monkeypatch: pytest.MonkeyPatch
 
     builder = TimelineBuilder()
 
-    async def fake_transcribe(path: Path):  # type: ignore[override]
+    async def fake_transcribe(path: Path) -> list[dict[str, Any]]:
         return [
             {"text": "第一句", "start": 0.0, "end": 1.0},
             {"text": "第二句", "start": 1.0, "end": 2.0},
         ]
 
-    async def fake_search(query: str, limit: int = 5):
+    async def fake_search(query: str, limit: int = 5) -> list[dict[str, Any]]:
         return [
             {
                 "id": str(uuid4()),

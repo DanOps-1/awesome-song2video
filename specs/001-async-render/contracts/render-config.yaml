@@ -1,0 +1,85 @@
+openapi: 3.0.3
+info:
+  title: Render Clip Configuration API
+  version: 1.0.0
+paths:
+  /api/v1/render/config:
+    get:
+      summary: 获取渲染裁剪配置
+      operationId: getRenderConfig
+      responses:
+        '200':
+          description: 当前并行裁剪配置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderClipConfig'
+    patch:
+      summary: 更新渲染裁剪配置
+      description: 仅管理员可调用；成功后通过 Redis Pub/Sub 广播。
+      operationId: updateRenderConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderClipConfigPatch'
+      responses:
+        '200':
+          description: 更新后的配置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderClipConfig'
+        '400':
+          description: 参数超出范围
+        '401':
+          description: 未授权
+components:
+  schemas:
+    RenderClipConfig:
+      type: object
+      properties:
+        max_parallelism:
+          type: integer
+          minimum: 1
+          maximum: 6
+        per_video_limit:
+          type: integer
+          minimum: 1
+          maximum: 3
+        max_retry:
+          type: integer
+          minimum: 0
+          maximum: 5
+        placeholder_asset_path:
+          type: string
+        retry_backoff_base_ms:
+          type: integer
+          minimum: 100
+        metrics_flush_interval_s:
+          type: integer
+          minimum: 1
+      required:
+        - max_parallelism
+        - per_video_limit
+        - max_retry
+        - placeholder_asset_path
+        - retry_backoff_base_ms
+        - metrics_flush_interval_s
+    RenderClipConfigPatch:
+      type: object
+      properties:
+        max_parallelism:
+          $ref: '#/components/schemas/RenderClipConfig/properties/max_parallelism'
+        per_video_limit:
+          $ref: '#/components/schemas/RenderClipConfig/properties/per_video_limit'
+        max_retry:
+          $ref: '#/components/schemas/RenderClipConfig/properties/max_retry'
+        placeholder_asset_path:
+          type: string
+        retry_backoff_base_ms:
+          $ref: '#/components/schemas/RenderClipConfig/properties/retry_backoff_base_ms'
+        metrics_flush_interval_s:
+          $ref: '#/components/schemas/RenderClipConfig/properties/metrics_flush_interval_s'
+      additionalProperties: false

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, Iterable, List, cast
+from typing import Any, Iterable, cast
 from uuid import uuid4
 
 import structlog
@@ -37,7 +37,16 @@ class TwelveLabsClient:
         self._client: Any | None = None
         self._base_urls = self._build_base_url_chain()
         self._base_url_index = -1
+
+        # 搜索模态配置
         self._audio_enabled = self._settings.tl_audio_search_enabled
+        self._transcription_enabled = self._settings.tl_transcription_search_enabled
+
+        # 高级搜索选项（Marengo 3.0）
+        self._transcription_mode = self._settings.tl_transcription_mode
+        self._search_operator = self._settings.tl_search_operator
+        self._confidence_threshold = self._settings.tl_confidence_threshold
+
         self._current_base_url: str | None = None
         if self._live_enabled:
             self._advance_client()
@@ -52,15 +61,39 @@ class TwelveLabsClient:
 
         async def _run_with_options(options: list[str]) -> list[dict[str, Any]]:
             def blocking_call() -> list[dict[str, Any]]:
-                logger.info("twelvelabs.search_query", query=query, base_url=self._current_base_url, options=options)
-                client = cast(Any, self._client)
-                pager = client.search.query(
-                    index_id=self._index_id,
-                    query_text=query,
-                    search_options=options,
-                    group_by="clip",
-                    page_limit=max(limit, 10),
+                logger.info(
+                    "twelvelabs.search_query",
+                    query=query,
+                    base_url=self._current_base_url,
+                    options=options,
                 )
+                client = cast(Any, self._client)
+
+                # 构建搜索参数
+                search_params: dict[str, Any] = {
+                    "index_id": self._index_id,
+                    "query_text": query,
+                    "search_options": options,
+                    "group_by": "clip",
+                    "page_limit": max(limit, 10),
+                }
+
+                # Marengo 3.0 高级参数（仅当索引支持时才有效）
+                # transcription_options（仅当使用 transcription 时）
+                if "transcription" in options:
+                    transcription_opts = self._build_transcription_options()
+                    if transcription_opts:
+                        search_params["transcription_options"] = transcription_opts
+
+                # operator（多模态组合方式）
+                if len(options) > 1:
+                    search_params["operator"] = self._search_operator
+
+                # adjust_confidence_level（置信度阈值）
+                if self._confidence_threshold > 0:
+                    search_params["adjust_confidence_level"] = self._confidence_threshold
+
+                pager = client.search.query(**search_params)
                 return self._convert_results(pager, limit)
 
             return await to_thread.run_sync(blocking_call)
@@ -245,12 +278,59 @@ class TwelveLabsClient:
         self._client = None
         return False
 
+    def _build_transcription_options(self) -> list[str]:
+        """构建 transcription_options 参数（仅 Marengo 3.0）。
+
+        返回:
+            - ["lexical"] - 关键词精确匹配
+            - ["semantic"] - 语义匹配
+            - ["lexical", "semantic"] - 两者都用（最广泛）
+        """
+        if self._transcription_mode == "lexical":
+            return ["lexical"]
+        elif self._transcription_mode == "semantic":
+            return ["semantic"]
+        elif self._transcription_mode == "both":
+            return ["lexical", "semantic"]
+        return []
+
     def _build_option_chain(self) -> list[list[str]]:
-        if not self._audio_enabled:
+        """构建搜索选项链。
+
+        默认只使用 visual（视觉）模态，这是最安全的选择。
+
+        可用的搜索模态（search_options）：
+        - visual: 视觉内容（场景、物体、动作、OCR 文字、品牌标志等）
+        - audio: 音频内容（音乐、环境声等，具体范围取决于索引的 Marengo 版本）
+        - transcription: 语音转文字（仅 Marengo 3.0 引擎的索引支持）
+
+        重要概念：
+        - model_options（索引创建时设置）：决定哪些模态被索引，创建后不可修改
+        - search_options（搜索时设置）：决定使用哪些模态搜索，必须是 model_options 的子集
+
+        注意：
+        - 如果 search_options 包含索引 model_options 不支持的模态，搜索可能失败
+        - 本实现采用降级策略：如果多模态搜索失败，会自动回退到只用 visual
+
+        参考：
+        - https://docs.twelvelabs.io/v1.3/docs/concepts/indexes
+        - https://docs.twelvelabs.io/v1.3/docs/concepts/modalities
+        - https://docs.twelvelabs.io/v1.3/api-reference/any-to-video-search/make-search-request
+        """
+        # 默认只用 visual
+        if not self._audio_enabled and not self._transcription_enabled:
             return [["visual"]]
+
+        # 构建启用的模态列表
+        enabled_modalities = ["visual"]
+        if self._audio_enabled:
+            enabled_modalities.append("audio")
+        if self._transcription_enabled:
+            enabled_modalities.append("transcription")
+
+        # 返回组合策略：全部模态 -> 仅 visual（降级）
         return [
-            ["visual", "audio"],
-            ["audio"],
+            enabled_modalities,
             ["visual"],
         ]
 

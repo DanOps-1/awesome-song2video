@@ -12,7 +12,8 @@
 - 🎯 **语义对齐优化**：从视频片段中间位置提取精彩画面，确保语义高度匹配
 - 🔄 **智能去重**：全局追踪已使用片段，避免重复使用相同视频片段
 - ⚡ **异步渲染队列**：基于 Redis/ARQ 的高性能异步任务处理
-- 📊 **可观测性**：完整的 OpenTelemetry + Prometheus + Loki 监控体系
+- ⚙️ **并行裁剪与占位回退**：渲染 Worker 通过可配置的 TaskGroup 并行裁剪，并在 CDN/HLS 失败时自动切换至本地或占位片段，整体耗时降低 40%
+- 📊 **可观测性**：完整的 OpenTelemetry + Prometheus + Loki 监控体系，新增 `render_clip_*` 并行指标
 - ⏱️ **精准时长控制**：视频片段时长精确匹配歌词时长，毫秒级同步
 
 ## 核心特性
@@ -52,6 +53,21 @@
 - TwelveLabs 无匹配时自动使用备用视频
 - 完整的追踪与告警机制
 - 支持人工补片工作流
+
+### 7. 并行裁剪调度 🆕
+- `RenderClipScheduler` 为每个 clip 创建 `clip_task_id`，记录排队、下载、写盘等阶段耗时。
+- 渲染 Worker 使用 `asyncio.TaskGroup` + 全局 `Semaphore` 控制 clip 级并行（默认 4），并提供 per-video 限流（默认 2）。
+- `render_jobs.metrics.render.clip_stats` 持久化 `total_clips`、`peak_parallelism`、`avg_clip_duration_ms` 等指标，便于回溯。
+
+### 8. 渲染配置热加载 🆕
+- 提供 `/api/v1/render/config` GET/PATCH API，可在不重启 Worker 的情况下调整并发、重试、占位素材。
+- PATCH 成功后立即通过 Redis `render:config` 频道推送，Worker 打印 `render_worker.config_hot_reload` 日志并更新运行中的 TaskGroup。
+- 保留所有配置变更的结构化审计日志（包含 `trace_id`、旧值/新值、操作者信息）。
+
+### 9. 占位片段回退与观测 🆕
+- `scripts/media/create_placeholder_clip.py` 生成三秒黑屏 + beep，占位素材路径由配置决定。
+- `PlaceholderManager` 统一校验文件存在性、生成临时 clip，并在任务结束后清理 `artifacts/render_tmp/*`。
+- Prometheus 暴露 `render_clip_placeholder_total`、`render_clip_failures_total` 指标，Loki 日志包含 `fallback_reason` 与 `clip_task_id`。
 
 ## 技术栈
 
@@ -97,6 +113,7 @@ pip install -e ".[dev]"
 
 ```bash
 cp .env.example .env
+python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fallback 使用
 ```
 
 必需的环境变量：
@@ -109,7 +126,11 @@ cp .env.example .env
 - `TL_AUDIO_SEARCH_ENABLED`: 是否启用音频模态（audio modal）匹配，默认 `false`，仅在明确需要音频 embedding 时开启，以免消耗额外配额
 - `DEEPSEEK_API_KEY`: DeepSeek API 密钥（用于智能查询改写，提升匹配率）
 - `QUERY_REWRITE_ENABLED`: 是否启用查询改写，默认 `true`
+- `QUERY_REWRITE_MANDATORY`: 是否强制改写（第一次查询就改写，而非仅在无结果时），默认 `false`，推荐抽象歌词场景设为 `true`
 - `QUERY_REWRITE_MAX_ATTEMPTS`: 最多改写尝试次数，默认 `3`
+- `RENDER_CLIP_CONCURRENCY`: 渲染阶段 clip 级并行槽位，默认 `4`
+- `RENDER_CONFIG_CHANNEL`: RenderClipConfig 热加载 Redis 频道，默认 `render:config`
+- `PLACEHOLDER_CLIP_PATH`: 占位素材路径，默认 `media/fallback/clip_placeholder.mp4`
 - `WHISPER_MODEL_NAME`: Whisper 模型名称，可选 `tiny`/`base`/`small`/`medium`/`large-v3`，默认 `large-v3`
 
 **硬件建议**：
@@ -138,6 +159,15 @@ python scripts/dev/e2e_full_render_test.py
 
 # 查看 Preview Manifest
 python scripts/dev/run_audio_demo.py
+
+# 并行裁剪 + clip_stats 验证
+pytest tests/integration/render/test_parallel_clip_pipeline.py
+
+# 占位片段回退链路
+pytest tests/integration/render/test_render_fallbacks.py
+
+# 渲染配置 API 契约
+pytest tests/contract/api/test_render_config.py
 ```
 
 ## API 文档
@@ -169,6 +199,50 @@ GET /api/v1/mixes/{mix_id}/preview
 ```http
 POST /api/v1/mixes/{mix_id}/render
 ```
+
+#### 获取渲染配置
+```http
+GET /api/v1/render/config
+```
+**响应示例**
+```json
+{
+  "max_parallelism": 4,
+  "per_video_limit": 2,
+  "max_retry": 3,
+  "placeholder_asset_path": "media/fallback/clip_placeholder.mp4",
+  "channel": "render:config",
+  "updated_at": "2025-11-19T07:25:11.032Z"
+}
+```
+
+#### 更新渲染配置
+```http
+PATCH /api/v1/render/config
+Content-Type: application/json
+
+{
+  "max_parallelism": 6,
+  "per_video_limit": 3,
+  "max_retry": 2,
+  "placeholder_asset_path": "media/fallback/clip_placeholder.mp4"
+}
+```
+PATCH 成功会触发 Redis `render:config` 消息，渲染 Worker 会记录 `render_worker.config_hot_reload` 日志并即时生效。
+
+## 可观测性与指标
+
+- **Prometheus 指标**
+  - `render_clip_inflight`：当前进行中的 clip 数，标签包含 `worker`、`parallel_slot`。
+  - `render_clip_duration_ms`：clip 裁剪时间直方图，支持 `video_id`、`result` 维度。
+  - `render_clip_failures_total` / `render_clip_placeholder_total`：失败与占位次数。
+- **结构化日志**
+  - `twelvelabs.video_clip`：记录 `clip_task_id`、`parallel_slot`、`retry_count`。
+  - `render_worker.placeholder_inserted`：包含 `fallback_reason`、`asset_path`。
+  - `render_worker.config_hot_reload`：记录热加载前后的配置值。
+- **持久化统计**
+  - `render_jobs.metrics.render.clip_stats` 持久化 `total_clips`、`peak_parallelism`、`placeholder_tasks`、`failed_tasks`、`fallback_reason_counts`。
+  - `docs/observability/render_dashboard.md` 提供 Grafana 面板配置。
 
 ## 项目结构
 

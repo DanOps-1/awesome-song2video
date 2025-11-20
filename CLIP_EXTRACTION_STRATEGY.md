@@ -159,6 +159,20 @@ def _candidate_defaults(candidate: dict[str, int | float | str]) -> dict[str, in
    - 精彩画面往往在中间位置
    - 从中间截取概率上更容易命中精彩画面
 
+## 与占位回退的关系
+
+当 TwelveLabs/HLS 拉流多次失败时，渲染 Worker 会调用 `scripts/media/create_placeholder_clip.py` 生成的占位片段，并按歌词时长重新封装，使时间线不会出现断裂。相关指标会通过 `render_clip_placeholder_total` 暴露在 Prometheus 中。
+
+## 并行裁剪与观测补充
+
+- `RenderClipScheduler` 会为每个片段分配 `clip_task_id`，并跟踪 `queued_at/start_at/finished_at`，所有日志必须携带这些字段及 `parallel_slot`。
+- 渲染 Worker 通过 `asyncio.TaskGroup` + `Semaphore` 实现 `RENDER_CLIP_CONCURRENCY`（默认 4），单个视频的 `per_video_limit` 默认 2 防止 CDN 拉流雪崩。
+- Prometheus 指标
+  - `render_clip_inflight`：实时并发槽位计数。
+  - `render_clip_duration_ms`：下载 + 裁剪耗时直方图。
+  - `render_clip_failures_total` / `render_clip_placeholder_total`：失败类别与占位使用次数。
+- `render_jobs.metrics.render.clip_stats` 写入 `total_clips`、`peak_parallelism`、`placeholder_tasks`、`failed_tasks`、`fallback_reason_counts`，用于审计每次渲染的表现。
+
 3. **统计优势**：
    - 从开头截取：只有当匹配在前1/3时才准确
    - 从中间截取：匹配在中间2/3都有机会命中

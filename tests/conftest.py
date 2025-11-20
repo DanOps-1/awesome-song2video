@@ -5,6 +5,7 @@
 import asyncio
 import sys
 import uuid
+from collections.abc import AsyncGenerator, Callable, Generator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,20 +24,20 @@ from src.infra.persistence.database import init_engine, init_models
 
 
 @pytest.fixture(scope="session")
-def event_loop():
+def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_database(event_loop):
+def setup_database(event_loop: asyncio.AbstractEventLoop) -> None:
     init_engine("sqlite+aiosqlite:///:memory:")
     event_loop.run_until_complete(init_models())
 
 
 @pytest.fixture
-async def app_client() -> AsyncClient:
+async def app_client() -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
@@ -48,7 +49,7 @@ async def app_client() -> AsyncClient:
 
 
 @pytest.fixture
-def mix_request_factory():
+def mix_request_factory() -> Callable[..., SongMixRequest]:
     """创建 SongMixRequest 的工厂函数。"""
 
     def _create(
@@ -77,7 +78,7 @@ def mix_request_factory():
 
 
 @pytest.fixture
-def lyric_line_factory():
+def lyric_line_factory() -> Callable[..., LyricLine]:
     """创建 LyricLine 的工厂函数。"""
 
     def _create(
@@ -107,7 +108,7 @@ def lyric_line_factory():
 
 
 @pytest.fixture
-def video_segment_match_factory():
+def video_segment_match_factory() -> Callable[..., VideoSegmentMatch]:
     """创建 VideoSegmentMatch 的工厂函数。"""
 
     def _create(
@@ -137,7 +138,7 @@ def video_segment_match_factory():
 
 
 @pytest.fixture
-def render_job_factory():
+def render_job_factory() -> Callable[..., RenderJob]:
     """创建 RenderJob 的工厂函数。"""
 
     def _create(

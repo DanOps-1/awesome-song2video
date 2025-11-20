@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -40,11 +41,11 @@ def test_fetch_clip_downloads_segment_without_persisting_whole_video(tmp_path: P
 
     calls: list[str] = []
 
-    def fake_get(url, headers, timeout):
+    def fake_get(url: str, headers: Any, timeout: Any) -> _DummyResponse:
         calls.append(url)
         return _DummyResponse({"hls": {"video_url": "https://cdn.example/stream.m3u8"}})
 
-    def fake_run(cmd, check, stdout, stderr):
+    def fake_run(cmd: Any, check: Any, stdout: Any, stderr: Any) -> None:
         target = Path(cmd[-1])
         target.write_bytes(b"clip-data")
 
@@ -66,7 +67,7 @@ def test_fetch_clip_falls_back_to_local_when_live_disabled(tmp_path: Path, monke
     local_video = tmp_path / "local_vid.mp4"
     local_video.write_bytes(b"full-video")
 
-    def fake_run(cmd, check, stdout, stderr):
+    def fake_run(cmd: Any, check: Any, stdout: Any, stderr: Any) -> None:
         target = Path(cmd[-1])
         target.write_bytes(b"local-clip")
 

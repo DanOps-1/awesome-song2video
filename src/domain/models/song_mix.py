@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from pydantic import PrivateAttr
 from sqlalchemy import JSON, Column
@@ -49,7 +49,7 @@ class LyricLine(SQLModel, table=True):
         if private is None or "_candidates" not in private:
             self.__pydantic_private__ = {"_candidates": []}
             return []
-        return private["_candidates"]
+        return cast(list[VideoSegmentMatch], private["_candidates"])
 
     @candidates.setter
     def candidates(self, value: list[VideoSegmentMatch]) -> None:

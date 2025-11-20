@@ -63,6 +63,30 @@ render_queue_depth_gauge = meter.create_gauge(
     unit="jobs",
 )
 
+render_clip_inflight_gauge = meter.create_gauge(
+    name="render_clip_inflight",
+    description="进行中的剪辑任务数",
+    unit="clips",
+)
+
+render_clip_failures_total = meter.create_counter(
+    name="render_clip_failures_total",
+    description="剪辑阶段失败的次数",
+    unit="clips",
+)
+
+render_clip_duration_histogram = meter.create_histogram(
+    name="render_clip_duration_ms",
+    description="单个剪辑任务耗时",
+    unit="ms",
+)
+
+render_clip_placeholder_total = meter.create_counter(
+    name="render_clip_placeholder_total",
+    description="插入占位片段次数",
+    unit="clips",
+)
+
 
 def push_preview_metrics(
     mix_id: str,
@@ -130,3 +154,33 @@ def update_render_queue_depth(depth: int) -> None:
         depth: 当前队列中等待的任务数
     """
     render_queue_depth_gauge.set(depth)
+
+
+def set_clip_inflight(count: int, *, job_id: str, video_id: str | None = None) -> None:
+    labels: dict[str, Any] = {"job_id": job_id}
+    if video_id:
+        labels["video_id"] = video_id
+    render_clip_inflight_gauge.set(count, attributes=labels)
+
+
+def add_clip_failure(job_id: str, *, video_id: str | None = None, reason: str | None = None) -> None:
+    labels: dict[str, Any] = {"job_id": job_id}
+    if video_id:
+        labels["video_id"] = video_id
+    if reason:
+        labels["reason"] = reason
+    render_clip_failures_total.add(1, attributes=labels)
+
+
+def observe_clip_duration(duration_ms: float, *, job_id: str, video_id: str | None = None) -> None:
+    labels: dict[str, Any] = {"job_id": job_id}
+    if video_id:
+        labels["video_id"] = video_id
+    render_clip_duration_histogram.record(duration_ms, attributes=labels)
+
+
+def add_placeholder_clip(job_id: str, *, video_id: str | None = None) -> None:
+    labels: dict[str, Any] = {"job_id": job_id}
+    if video_id:
+        labels["video_id"] = video_id
+    render_clip_placeholder_total.add(1, attributes=labels)

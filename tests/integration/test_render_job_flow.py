@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -17,7 +20,7 @@ async def test_render_job_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     await repo.save(job)
 
-    async def fake_render(*args, **kwargs):
+    async def fake_render(*args: Any, **kwargs: Any) -> None:
         await repo.mark_success(job.id, output_asset_id="s3://video.mp4")
 
     monkeypatch.setattr("src.workers.render_worker._run_ffmpeg", fake_render)
