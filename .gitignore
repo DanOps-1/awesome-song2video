@@ -28,7 +28,8 @@ coverage.xml
 
 # 日志
 *.log
-logs/
+logs/*
+!logs/.gitkeep
 
 # 数据库
 *.db

@@ -5,6 +5,10 @@ from __future__ import annotations
 from arq.connections import RedisSettings
 
 from src.infra.config.settings import get_settings
+from src.infra.observability.otel import configure_logging
+
+# 配置日志（Worker 启动时自动调用）
+configure_logging()
 
 
 def redis_settings() -> RedisSettings:

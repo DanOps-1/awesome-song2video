@@ -168,6 +168,8 @@ class TwelveLabsClient:
 
     def _convert_results(self, items: Iterable[Any], limit: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
+        seen_videos: set[str] = set()  # 追踪已使用的 video_id，避免重复
+
         for item in items:
             try:
                 logger.info(
@@ -179,32 +181,58 @@ class TwelveLabsClient:
                 )
             except Exception:  # noqa: BLE001
                 pass
+
             clips = getattr(item, "clips", None) or []
             if clips:
                 for clip in clips:
+                    video_id = clip.video_id or item.video_id
+                    # 跳过已使用过的视频
+                    if video_id in seen_videos:
+                        logger.debug(
+                            "twelvelabs.skip_duplicate_video",
+                            video_id=video_id,
+                            rank=getattr(clip, "rank", None),
+                        )
+                        continue
+
                     results.append(
                         self._build_candidate_dict(
-                            clip.video_id or item.video_id,
+                            video_id,
                             clip.start,
                             clip.end,
                             getattr(clip, "score", None),
                             getattr(clip, "rank", None),
                         )
                     )
+                    seen_videos.add(video_id)
+
                     if len(results) >= limit:
                         return results
             else:
+                video_id = getattr(item, "video_id", None)
+                # 跳过已使用过的视频
+                if video_id in seen_videos:
+                    logger.debug(
+                        "twelvelabs.skip_duplicate_video",
+                        video_id=video_id,
+                        rank=getattr(item, "rank", None),
+                    )
+                    continue
+
                 results.append(
                     self._build_candidate_dict(
-                        getattr(item, "video_id", None),
+                        video_id,
                         getattr(item, "start", None),
                         getattr(item, "end", None),
                         getattr(item, "score", None),
                         getattr(item, "rank", None),
                     )
                 )
+                seen_videos.add(video_id)
+
             if len(results) >= limit:
                 break
+
         return results
 
     def _build_candidate_dict(

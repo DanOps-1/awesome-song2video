@@ -272,6 +272,39 @@ PATCH 成功会触发 Redis `render:config` 消息，渲染 Worker 会记录 `re
 
 ## 监控与可观测性
 
+### 日志系统 🆕
+
+系统支持结构化日志，自动输出到文件和控制台：
+
+**日志文件位置**：
+- `logs/app.log` - 所有日志（JSON 格式），自动轮转（10MB × 5 个备份）
+- `logs/error.log` - 错误日志（WARNING 及以上），自动轮转
+
+**控制台输出**：
+- 终端环境：彩色格式化输出（便于阅读）
+- 非终端环境：JSON 格式（便于程序分析）
+
+**日志特性**：
+- 自动创建 `logs/` 目录
+- 日志文件自动轮转（防止磁盘占满）
+- JSON 格式便于日志分析和查询
+- 支持异常堆栈追踪
+
+**查看日志**：
+```bash
+# 实时查看所有日志
+tail -f logs/app.log | jq .
+
+# 实时查看错误日志
+tail -f logs/error.log | jq .
+
+# 过滤特定事件
+cat logs/app.log | jq 'select(.event == "twelvelabs.search_query")'
+
+# 统计错误数量
+cat logs/error.log | jq -r '.event' | sort | uniq -c
+```
+
 ### Prometheus 指标
 
 ```promql
@@ -297,6 +330,12 @@ render_queue_depth
 
 # 存储 TODO
 {job="lyrics-mix-worker"} |= "render_worker.storage_todo" | json
+
+# TwelveLabs 搜索查询
+{job="lyrics-mix-api"} |= "twelvelabs.search_query" | json
+
+# 视频去重跳过
+{job="lyrics-mix-api"} |= "twelvelabs.skip_duplicate_video" | json
 ```
 
 ### Grafana 仪表盘

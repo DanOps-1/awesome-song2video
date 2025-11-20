@@ -4,8 +4,11 @@ from fastapi import FastAPI
 
 from src.api.v1.routes import mix_lines, mixes, preview, render, render_config
 from src.infra.config.settings import get_settings
+from src.infra.observability.otel import configure_logging
 from src.infra.persistence.database import init_engine, init_models
 
+# 配置日志（需要在应用启动前）
+configure_logging()
 
 app = FastAPI(title="歌词语义混剪 API")
 app.include_router(mixes.router)

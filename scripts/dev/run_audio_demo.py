@@ -21,10 +21,13 @@ if str(REPO_ROOT) not in sys.path:  # pragma: no cover - 路径注入
 
 from src.api.main import app
 from src.infra.config.settings import get_settings
+from src.infra.observability.otel import configure_logging
 from src.infra.persistence.database import init_engine, init_models
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
 from src.workers import render_worker
 
+# 配置日志（在其他操作之前）
+configure_logging()
 
 ARTIFACT_DIR = Path("artifacts/renders")
 TEMP_OUTPUT_DIR = Path("artifacts/render_tmp")
