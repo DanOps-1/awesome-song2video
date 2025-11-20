@@ -109,13 +109,12 @@ class TimelineBuilder:
             # 选择未使用或使用次数最少的片段
             selected_candidates = self._select_diverse_candidates(normalized, limit=3)
 
-            # 标记第一个候选片段为已使用（渲染时默认使用第一个）
-            if selected_candidates:
-                first = selected_candidates[0]
+            # 标记所有候选片段为已使用（防止后续句子重复使用）
+            for candidate in selected_candidates:
                 segment_key = (
-                    str(first.get("source_video_id")),
-                    int(first.get("start_time_ms", 0)),
-                    int(first.get("end_time_ms", 0)),
+                    str(candidate.get("source_video_id")),
+                    int(candidate.get("start_time_ms", 0)),
+                    int(candidate.get("end_time_ms", 0)),
                 )
                 self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
 
