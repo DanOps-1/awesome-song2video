@@ -12,8 +12,6 @@ dist/
 *.egg-info/
 
 # 配置与敏感信息
-.env
-.env.*
 *.local
 
 # 编辑器/系统
