@@ -39,7 +39,7 @@ class AppSettings(BaseSettings):
     fallback_video_id: str = "broll"
     enable_async_queue: bool = False
     render_concurrency_limit: int = 3
-    render_clip_concurrency: int = 4
+    render_clip_concurrency: int = 10
     render_config_channel: str = "render:config"
     render_per_video_limit: int = 2
     render_max_retry: int = 2
