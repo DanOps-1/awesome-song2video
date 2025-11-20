@@ -177,6 +177,8 @@ class TwelveLabsClient:
                     video_id=getattr(item, "video_id", None),
                     score=getattr(item, "score", None),
                     rank=getattr(item, "rank", None),
+                    start=getattr(item, "start", None),
+                    end=getattr(item, "end", None),
                     clips_count=len(getattr(item, "clips", []) or []),
                 )
             except Exception:  # noqa: BLE001
@@ -186,6 +188,21 @@ class TwelveLabsClient:
             if clips:
                 for clip in clips:
                     video_id = clip.video_id or item.video_id
+                    start = getattr(clip, "start", None)
+                    end = getattr(clip, "end", None)
+
+                    # 跳过时间戳为 null 的结果（无效数据）
+                    if start is None or end is None:
+                        logger.warning(
+                            "twelvelabs.invalid_timestamp",
+                            video_id=video_id,
+                            rank=getattr(clip, "rank", None),
+                            start=start,
+                            end=end,
+                            message="跳过时间戳为 null 的 clip",
+                        )
+                        continue
+
                     # 跳过已使用过的视频
                     if video_id in seen_videos:
                         logger.debug(
@@ -198,8 +215,8 @@ class TwelveLabsClient:
                     results.append(
                         self._build_candidate_dict(
                             video_id,
-                            clip.start,
-                            clip.end,
+                            start,
+                            end,
                             getattr(clip, "score", None),
                             getattr(clip, "rank", None),
                         )
@@ -210,6 +227,21 @@ class TwelveLabsClient:
                         return results
             else:
                 video_id = getattr(item, "video_id", None)
+                start = getattr(item, "start", None)
+                end = getattr(item, "end", None)
+
+                # 跳过时间戳为 null 的结果（无效数据）
+                if start is None or end is None:
+                    logger.warning(
+                        "twelvelabs.invalid_timestamp",
+                        video_id=video_id,
+                        rank=getattr(item, "rank", None),
+                        start=start,
+                        end=end,
+                        message="跳过时间戳为 null 的结果",
+                    )
+                    continue
+
                 # 跳过已使用过的视频
                 if video_id in seen_videos:
                     logger.debug(
@@ -222,8 +254,8 @@ class TwelveLabsClient:
                 results.append(
                     self._build_candidate_dict(
                         video_id,
-                        getattr(item, "start", None),
-                        getattr(item, "end", None),
+                        start,
+                        end,
                         getattr(item, "score", None),
                         getattr(item, "rank", None),
                     )
