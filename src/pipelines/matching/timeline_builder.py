@@ -297,6 +297,20 @@ class TimelineBuilder:
             item["candidate"] for item in candidates_with_usage[:limit]
         ]
 
+        # 记录选中的片段详细信息
+        for idx, item in enumerate(candidates_with_usage[:limit]):
+            candidate = item["candidate"]
+            self._logger.info(
+                "timeline_builder.selected_clip",
+                index=idx + 1,
+                video_id=candidate.get("source_video_id"),
+                start_ms=candidate.get("start_time_ms"),
+                end_ms=candidate.get("end_time_ms"),
+                duration_ms=candidate.get("end_time_ms", 0) - candidate.get("start_time_ms", 0),
+                score=candidate.get("score"),
+                usage_count=item["usage_count"],
+            )
+
         # 记录日志
         if candidates_with_usage:
             first_usage = candidates_with_usage[0]["usage_count"]

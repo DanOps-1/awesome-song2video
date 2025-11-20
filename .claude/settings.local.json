@@ -36,7 +36,8 @@
       "Bash(sysctl:*)",
       "Bash(pytest:*)",
       "Bash(git checkout:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []
