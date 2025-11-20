@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 import re
 from uuid import uuid4
 
@@ -27,6 +27,12 @@ class TimelineLine:
 @dataclass
 class TimelineResult:
     lines: list[TimelineLine] = field(default_factory=list)
+
+
+class CandidateWithUsage(TypedDict):
+    candidate: dict[str, int | float | str]
+    usage_count: int
+    score: float
 
 
 class TimelineBuilder:
@@ -148,7 +154,15 @@ class TimelineBuilder:
 
     async def _get_candidates(self, text: str, limit: int) -> list[dict[str, Any]]:
         """
-        获取候选片段，使用智能重试降级策略：
+        获取候选片段，支持两种策略：
+
+        策略1: 强制改写模式 (QUERY_REWRITE_MANDATORY=true)
+        1. AI改写（第1次） → 查询
+        2. 无候选 → AI改写（第2次，通用化） → 重试
+        3. 仍无候选 → AI改写（第3次，极简化） → 重试
+        4. 仍无候选 → 返回空（使用fallback）
+
+        策略2: 按需改写模式 (QUERY_REWRITE_MANDATORY=false，默认)
         1. 原始查询 → 有候选 → 使用
         2. 原始查询 → 无候选 → AI改写（第1次） → 重试
         3. 仍无候选 → AI改写（第2次，通用化） → 重试
@@ -157,14 +171,44 @@ class TimelineBuilder:
         """
         key = (text, limit)
         if key not in self._candidate_cache:
-            # 第一步：尝试原始查询
-            candidates = await client.search_segments(text, limit=limit)
+            candidates: list[dict[str, Any]] = []
+            query_text = text
+
+            # 如果启用了改写且配置为强制改写，第一次查询就改写
+            if self._rewriter._enabled and self._settings.query_rewrite_mandatory:
+                self._logger.info(
+                    "timeline_builder.mandatory_rewrite",
+                    original=text[:30],
+                    message="强制改写模式，跳过原始查询",
+                )
+                # 直接进入改写流程，从 attempt=0 开始
+                query_text = await self._rewriter.rewrite(text, attempt=0)
+                self._logger.info(
+                    "timeline_builder.mandatory_rewrite_query",
+                    original=text[:30],
+                    rewritten=query_text[:30],
+                )
+                candidates = await client.search_segments(query_text, limit=limit)
+
+                # 如果第一次改写就成功，记录日志
+                if candidates:
+                    self._logger.info(
+                        "timeline_builder.mandatory_rewrite_success",
+                        original=text[:30],
+                        rewritten=query_text[:50],
+                        count=len(candidates),
+                    )
+            else:
+                # 第一步：尝试原始查询
+                candidates = await client.search_segments(text, limit=limit)
 
             # 第二步：如果无候选且启用了改写，智能重试改写
             if not candidates and self._rewriter._enabled:
                 max_attempts = self._settings.query_rewrite_max_attempts
+                # 如果已经执行过强制改写，从 attempt=1 开始（跳过第一次）
+                start_attempt = 1 if self._settings.query_rewrite_mandatory else 0
 
-                for attempt in range(max_attempts):
+                for attempt in range(start_attempt, max_attempts):
                     self._logger.info(
                         "timeline_builder.fallback_to_rewrite",
                         original=text[:30],
@@ -175,7 +219,7 @@ class TimelineBuilder:
                     rewritten_query = await self._rewriter.rewrite(text, attempt=attempt)
 
                     # 如果改写后的查询不同，则重试
-                    if rewritten_query != text:
+                    if rewritten_query != text and rewritten_query != query_text:
                         candidates = await client.search_segments(rewritten_query, limit=limit)
                         self._logger.info(
                             "timeline_builder.rewrite_result",
@@ -230,7 +274,7 @@ class TimelineBuilder:
             return []
 
         # 为每个候选片段计算使用次数和评分
-        candidates_with_usage = []
+        candidates_with_usage: list[CandidateWithUsage] = []
         for candidate in candidates:
             video_id = str(candidate.get("source_video_id", ""))
             start_ms = int(candidate.get("start_time_ms", 0))
@@ -249,7 +293,9 @@ class TimelineBuilder:
         candidates_with_usage.sort(key=lambda x: (x["usage_count"], -x["score"]))
 
         # 提取候选片段并限制数量
-        selected = [item["candidate"] for item in candidates_with_usage[:limit]]
+        selected: list[dict[str, int | float | str]] = [
+            item["candidate"] for item in candidates_with_usage[:limit]
+        ]
 
         # 记录日志
         if candidates_with_usage:

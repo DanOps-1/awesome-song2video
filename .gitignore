@@ -44,6 +44,9 @@ media/audio/*
 !media/audio/.gitkeep
 media/video/*
 !media/video/.gitkeep
+media/fallback/*
+!media/fallback/clip_placeholder.mp4
+!media/fallback/.gitkeep
 
 # 其他工具
 node_modules/

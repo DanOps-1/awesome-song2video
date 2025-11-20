@@ -6,6 +6,7 @@ import asyncio
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -13,16 +14,25 @@ from typing import Iterable
 import structlog
 
 from src.domain.models.metrics import create_render_metrics
+from src.domain.models.render_clip_config import RenderClipConfig
 from src.domain.models.song_mix import LyricLine, SongMixRequest
+from src.domain.services.render_clip_scheduler import ClipDownloadResult, ClipDownloadTask, RenderClipScheduler
+from src.domain.services.render_reporter import build_clip_stats
 from src.infra.config.settings import get_settings
+from src.infra.messaging.render_config_watcher import RenderConfigWatcher
 from src.infra.observability.preview_render_metrics import (
+    add_clip_failure,
+    add_placeholder_clip,
+    observe_clip_duration,
     push_render_metrics,
+    set_clip_inflight,
     update_render_queue_depth,
 )
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.pipelines.rendering.ffmpeg_script_builder import FFMpegScriptBuilder, RenderLine
 from src.services.matching.twelvelabs_video_fetcher import video_fetcher
+from src.services.render.placeholder_manager import cleanup_tmp_root, ensure_tmp_root, write_placeholder_clip
 from src.workers import BaseWorkerSettings
 
 logger = structlog.get_logger(__name__)
@@ -30,11 +40,34 @@ repo = RenderJobRepository()
 song_repo = SongMixRepository()
 settings = get_settings()
 render_semaphore = asyncio.Semaphore(max(1, settings.render_concurrency_limit))
+clip_config = RenderClipConfig.from_settings(settings)
+_config_watcher: RenderConfigWatcher | None = None
 
 
 async def render_mix(ctx: dict | None, job_id: str) -> None:
     async with render_semaphore:
         await _render_mix_impl(job_id)
+
+
+async def on_startup(ctx: dict) -> dict:
+    global _config_watcher
+
+    async def _handle_update(new_config: RenderClipConfig) -> None:
+        global clip_config
+        clip_config = new_config
+        logger.info("render_worker.config_hot_reload", config=new_config.model_dump())
+
+    _config_watcher = RenderConfigWatcher(_handle_update)
+    await _config_watcher.start()
+    ctx["clip_config"] = clip_config
+    return ctx
+
+
+async def on_shutdown(ctx: dict) -> None:
+    global _config_watcher
+    if _config_watcher:
+        await _config_watcher.stop()
+        _config_watcher = None
 
 
 async def _render_mix_impl(job_id: str) -> None:
@@ -76,10 +109,11 @@ async def _render_mix_impl(job_id: str) -> None:
         render_lines = [_build_render_line(line) for line in lines]
         builder = FFMpegScriptBuilder(resolution="1080p", frame_rate=25)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_root = ensure_tmp_root()
+        with tempfile.TemporaryDirectory(dir=tmp_root.as_posix()) as tmp_dir:
             tmp_path = Path(tmp_dir)
             builder.write_edl(render_lines, tmp_path / "timeline.json")
-            clips = _extract_clips(render_lines, tmp_path)
+            clips, clip_stats = await _extract_clips(render_lines, job_id, tmp_path)
             concat_file = tmp_path / "concat.txt"
             concat_file.write_text("".join([f"file '{clip.as_posix()}'\n" for clip in clips]))
             output_video = tmp_path / f"{job_id}.mp4"
@@ -118,6 +152,7 @@ async def _render_mix_impl(job_id: str) -> None:
                 queued_at=queued_at,
                 finished_at=finished_at,
             )
+            render_metrics_dict["clip_stats"] = clip_stats
 
             # 将视频文件和字幕文件复制到持久化目录
             output_dir = Path("artifacts/renders")
@@ -176,6 +211,8 @@ async def _render_mix_impl(job_id: str) -> None:
         logger.error("render_worker.failed", job_id=job_id, error=str(exc), exc_info=True)
         await repo.mark_failure(job_id, error_log=str(exc))
         raise
+    finally:
+        cleanup_tmp_root()
 
 
 def _build_render_line(line: LyricLine) -> RenderLine:
@@ -197,16 +234,122 @@ def _build_render_line(line: LyricLine) -> RenderLine:
     )
 
 
-def _extract_clips(lines: Iterable[RenderLine], tmp_path: Path) -> list[Path]:
+async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -> tuple[list[Path], dict[str, float | int | str]]:
+    scheduler = RenderClipScheduler(
+        max_parallelism=clip_config.max_parallelism,
+        per_video_limit=clip_config.per_video_limit,
+        max_retry=clip_config.max_retry,
+        retry_backoff_base_ms=clip_config.retry_backoff_base_ms,
+    )
+    clip_tasks = [
+        ClipDownloadTask(
+            idx=idx,
+            video_id=line.source_video_id,
+            start_ms=line.start_time_ms,
+            end_ms=line.end_time_ms,
+            target_path=tmp_path / f"clip_{idx}.mp4",
+        )
+        for idx, line in enumerate(lines)
+    ]
+
+    inflight = 0
+    peak_parallelism = 0
+    inflight_lock = asyncio.Lock()
+    duration_lock = asyncio.Lock()
+    durations: list[float] = []
+
+    async def _worker(task: ClipDownloadTask) -> ClipDownloadResult:
+        nonlocal inflight, peak_parallelism
+        line = lines[task.idx]
+        async with inflight_lock:
+            inflight += 1
+            peak_parallelism = max(peak_parallelism, inflight)
+            parallel_slot = inflight - 1
+            set_clip_inflight(inflight, job_id=job_id, video_id=task.video_id)
+        logger.info(
+            "render_worker.clip_task_start",
+            clip_task_id=task.clip_task_id,
+            job_id=job_id,
+            video_id=task.video_id,
+            parallel_slot=parallel_slot,
+        )
+        start = time.perf_counter()
+        try:
+            clip_path = await asyncio.to_thread(
+                video_fetcher.fetch_clip,
+                line.source_video_id,
+                line.start_time_ms,
+                line.end_time_ms,
+                task.target_path,
+            )
+            if clip_path is None or not clip_path.exists():
+                raise RuntimeError("clip_not_generated")
+            duration_ms = (time.perf_counter() - start) * 1000
+            observe_clip_duration(duration_ms, job_id=job_id, video_id=task.video_id)
+            async with duration_lock:
+                durations.append(duration_ms)
+            logger.info(
+                "render_worker.clip_task_end",
+                clip_task_id=task.clip_task_id,
+                job_id=job_id,
+                video_id=task.video_id,
+                status="success",
+                duration_ms=round(duration_ms, 2),
+                parallel_slot=parallel_slot,
+            )
+            return ClipDownloadResult(task=task, status="success", path=clip_path, duration_ms=duration_ms)
+        except Exception as exc:  # noqa: BLE001
+            add_clip_failure(job_id=job_id, video_id=task.video_id, reason=type(exc).__name__)
+            logger.warning(
+                "render_worker.clip_task_failed",
+                clip_task_id=task.clip_task_id,
+                job_id=job_id,
+                video_id=task.video_id,
+                error=str(exc),
+                parallel_slot=parallel_slot,
+            )
+            raise
+        finally:
+            async with inflight_lock:
+                inflight -= 1
+                set_clip_inflight(inflight, job_id=job_id, video_id=task.video_id)
+
+    results = await scheduler.run(clip_tasks, _worker)
+    results.sort(key=lambda r: r.task.idx)
+
     clips: list[Path] = []
-    for idx, line in enumerate(lines):
-        clip_path = tmp_path / f"clip_{idx}.mp4"
-        clip = video_fetcher.fetch_clip(line.source_video_id, line.start_time_ms, line.end_time_ms, clip_path)
-        if clip is None or not clip.exists():
-            logger.warning("render_worker.clip_failed", video_id=line.source_video_id, idx=idx)
-            continue
-        clips.append(clip)
-    return clips
+    failed = 0
+    placeholder = 0
+    for result in results:
+        if result.status == "success" and result.path:
+            clips.append(result.path)
+        else:
+            failed += 1
+            placeholder_path = tmp_path / f"placeholder_{result.task.idx}.mp4"
+            duration = lines[result.task.idx].end_time_ms - lines[result.task.idx].start_time_ms
+            try:
+                await asyncio.to_thread(write_placeholder_clip, placeholder_path, duration)
+                placeholder += 1
+                add_placeholder_clip(job_id=job_id, video_id=result.task.video_id)
+                clips.append(placeholder_path)
+                logger.warning(
+                    "render_worker.placeholder_inserted",
+                    clip_task_id=result.task.clip_task_id,
+                    job_id=job_id,
+                    video_id=result.task.video_id,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error("render_worker.placeholder_failed", error=str(exc))
+
+    clip_stats = build_clip_stats(
+        total=len(clip_tasks),
+        success=len(clips),
+        failed=failed,
+        placeholder=placeholder,
+        durations=durations,
+        peak_parallelism=peak_parallelism,
+    )
+    return clips, clip_stats
 
 
 def _write_srt(lines: Iterable[RenderLine], path: Path) -> Path:
@@ -291,3 +434,5 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -
 
 class WorkerSettings(BaseWorkerSettings):
     functions = ["src.workers.render_worker.render_mix"]
+    on_startup = "src.workers.render_worker.on_startup"
+    on_shutdown = "src.workers.render_worker.on_shutdown"

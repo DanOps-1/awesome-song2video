@@ -11,11 +11,11 @@ from src.services.matching.twelvelabs_client import TwelveLabsClient
 
 def _make_client() -> TwelveLabsClient:
     client = TwelveLabsClient.__new__(TwelveLabsClient)
-    client._settings = SimpleNamespace(fallback_video_id="mock-video")  # type: ignore[attr-defined]
+    client._settings = SimpleNamespace(fallback_video_id="mock-video")  # type: ignore[assignment]
     return client
 
 
-def test_build_candidate_dict_uses_rank_when_score_missing():
+def test_build_candidate_dict_uses_rank_when_score_missing() -> None:
     client = _make_client()
 
     result = client._build_candidate_dict(
@@ -30,7 +30,7 @@ def test_build_candidate_dict_uses_rank_when_score_missing():
     assert result["score"] == pytest.approx(0.5)
 
 
-def test_build_candidate_dict_prefers_score_over_rank():
+def test_build_candidate_dict_prefers_score_over_rank() -> None:
     client = _make_client()
 
     result = client._build_candidate_dict(
@@ -45,7 +45,7 @@ def test_build_candidate_dict_prefers_score_over_rank():
     assert result["rank"] == 1
 
 
-def test_normalize_score_handles_missing_values():
+def test_normalize_score_handles_missing_values() -> None:
     assert TwelveLabsClient._normalize_score(None, None) == 0.0
-    assert TwelveLabsClient._normalize_score("0.6", None) == pytest.approx(0.6)
+    assert TwelveLabsClient._normalize_score(0.6, None) == pytest.approx(0.6)
     assert TwelveLabsClient._normalize_score(None, 0) == 0.0

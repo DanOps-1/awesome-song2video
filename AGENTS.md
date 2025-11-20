@@ -47,6 +47,7 @@ tests/
 - `arq src.workers.render_worker.WorkerSettings`：渲染/FFmpeg worker。
 - `pytest && ruff check && mypy`：CI 质量基线。
 - `scripts/dev/seed_demo.sh`：创建演示歌曲与媒资。
+- `python scripts/media/create_placeholder_clip.py`：生成 3 秒黑屏占位片段，供 fallback 使用。
 
 ## Code Style
 
@@ -60,4 +61,5 @@ tests/
 - 001-lyrics-video-sync：新增歌词语义混剪方案，确定技术栈与模块划分。
 
 <!-- MANUAL ADDITIONS START -->
+- 001-async-render：渲染 Worker 已启用 clip 级并行调度。配置通过 `/api/v1/render/config` + Redis `render:config` 热加载，`render_clip_*` 指标（inflight/duration/failures/placeholder）必须在 Prometheus 中持续可见，日志字段需包含 `clip_task_id`、`parallel_slot`、`fallback_reason`。
 <!-- MANUAL ADDITIONS END -->
