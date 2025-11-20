@@ -115,7 +115,8 @@ async def _render_mix_impl(job_id: str) -> None:
             builder.write_edl(render_lines, tmp_path / "timeline.json")
             clips, clip_stats = await _extract_clips(render_lines, job_id, tmp_path)
             concat_file = tmp_path / "concat.txt"
-            concat_file.write_text("".join([f"file '{clip.as_posix()}'\n" for clip in clips]))
+            # 使用文件名而非绝对路径（所有 clip 都在同一目录下）
+            concat_file.write_text("".join([f"file '{clip.name}'\n" for clip in clips]))
             output_video = tmp_path / f"{job_id}.mp4"
             _run_ffmpeg(
                 [
