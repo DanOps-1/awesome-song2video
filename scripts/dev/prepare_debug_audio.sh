@@ -23,8 +23,8 @@ echo "源音频: $SOURCE_AUDIO"
 echo "输出: $DEBUG_AUDIO"
 echo ""
 
-# 裁剪前 20 秒
-ffmpeg -y -i "$SOURCE_AUDIO" -t 20 -c copy "$DEBUG_AUDIO" 2>&1 | grep -E "(Duration|size=)" || true
+# 裁剪前 20 秒（重新编码以确保精确时长）
+ffmpeg -y -i "$SOURCE_AUDIO" -t 20 -acodec libmp3lame -b:a 192k "$DEBUG_AUDIO" 2>&1 | grep -E "(Duration|size=)" || true
 
 if [ -f "$DEBUG_AUDIO" ]; then
     echo ""
