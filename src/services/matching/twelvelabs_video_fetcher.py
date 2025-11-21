@@ -32,12 +32,18 @@ class TwelveLabsVideoFetcher:
         self._per_video_locks: dict[str, threading.Semaphore] = {}
 
     def fetch_clip(self, video_id: str, start_ms: int, end_ms: int, target: Path) -> Path | None:
-        """按时间窗拉取视频片段到目标路径（仅临时使用，不保留全量文件）。"""
+        """按时间窗拉取视频片段到目标路径（仅临时使用，不保留全量文件）。
+
+        使用精确裁剪模式（output seeking + reencode），确保：
+        1. 每个片段时长与指定时长完全一致（毫秒级精度）
+        2. 多个片段拼接后总时长与音频完全对齐
+        3. 字幕时间戳与画面完美同步
+        """
         target.parent.mkdir(parents=True, exist_ok=True)
         start_ms = max(0, start_ms)
         end_ms = max(end_ms, start_ms + 500)
 
-        # 优先实时拉取 HLS 片段
+        # 优先实时拉取 HLS 片段（使用精确裁剪）
         if self._live_enabled:
             lock = self._get_video_lock(video_id)
             acquired = lock.acquire(blocking=False)
@@ -51,11 +57,9 @@ class TwelveLabsVideoFetcher:
             try:
                 stream_url = self._get_stream_url(video_id)
                 if stream_url:
-                    # 只尝试 -c copy（快速，不重新编码）
-                    # 如果失败，返回 None 触发候选片段回退
-                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id, use_reencode=False):
+                    # 使用精确裁剪模式（重新编码）
+                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id):
                         return target
-                    # 不再回退到重新编码，让上层尝试下一个候选片段
             finally:
                 lock.release()
 
@@ -148,24 +152,36 @@ class TwelveLabsVideoFetcher:
         video_id: str,
         *,
         is_local: bool = False,
-        use_reencode: bool = False,
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
 
-        # 使用 71b30f8 工作版本的简单 FFmpeg 命令
-        # -ss 在 -i 之前 = input seeking（快速但可能不精确）
-        # -c copy = 流复制（快速，无转码）
+        # 🔧 修复音频画面不对齐问题：使用精确裁剪模式
+        # 问题原因：
+        #   1. -ss 在 -i 之前（input seeking）只能定位到最近的关键帧，导致每个片段时长不精确
+        #   2. -c copy 流复制模式无法重新编码调整时长
+        #   3. 多个片段拼接后，误差累积导致字幕与画面严重不对齐
+        #
+        # 解决方案：
+        #   1. -ss 放在 -i 之后（output seeking）= 精确到毫秒级定位
+        #   2. 使用 libx264 重新编码，确保输出时长与指定时长完全一致
+        #   3. 使用 ultrafast 预设平衡速度和质量
         cmd = [
             "ffmpeg",
             "-y",
-            "-ss",
-            f"{start_ms / 1000:.2f}",
             "-i",
             source_url,
+            "-ss",
+            f"{start_ms / 1000:.3f}",  # 毫秒精度（output seeking，精确定位）
             "-t",
-            f"{duration:.2f}",
-            "-c",
-            "copy",
+            f"{duration:.3f}",  # 毫秒精度
+            "-c:v",
+            "libx264",  # 视频重新编码（确保精确时长）
+            "-preset",
+            "ultrafast",  # 快速编码预设
+            "-c:a",
+            "aac",  # 音频重新编码
+            "-b:a",
+            "128k",  # 音频比特率
             target.as_posix(),
         ]
 
