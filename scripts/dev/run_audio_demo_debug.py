@@ -48,6 +48,29 @@ def _patch_render_worker_tempdir() -> None:
     render_module.ensure_tmp_root = patched_ensure_tmp_root
 
 
+async def _lock_all_lines(client: AsyncClient, mix_id: str) -> list[dict[str, Any]]:
+    """锁定所有歌词行用于渲染。"""
+    resp = await client.get(f"/api/v1/mixes/{mix_id}/lines")
+    resp.raise_for_status()
+    locked: list[dict[str, Any]] = []
+    for line in resp.json()["lines"]:
+        candidates = line.get("candidates") or []
+        payload: dict[str, Any] = {
+            "start_time_ms": line["start_time_ms"],
+            "end_time_ms": line["end_time_ms"],
+            "annotations": "Debug auto lock",
+        }
+        if candidates:
+            payload["selected_segment_id"] = candidates[0]["id"]
+        resp = await client.patch(
+            f"/api/v1/mixes/{mix_id}/lines/{line['id']}",
+            json=payload,
+        )
+        resp.raise_for_status()
+        locked.append(resp.json())
+    return locked
+
+
 async def run_demo() -> dict[str, Any]:
     settings = get_settings()
     audio_path = (Path(settings.audio_asset_dir) / "tom_debug_20s.mp3").resolve()
@@ -79,6 +102,10 @@ async def run_demo() -> dict[str, Any]:
 
         resp = await client.post(f"/api/v1/mixes/{mix_id}/generate-timeline")
         resp.raise_for_status()
+
+        # 锁定所有歌词行
+        locked_lines = await _lock_all_lines(client, mix_id)
+        print(f"已锁定 {len(locked_lines)} 行歌词用于渲染")
 
         resp = await client.post(
             f"/api/v1/mixes/{mix_id}/render",
