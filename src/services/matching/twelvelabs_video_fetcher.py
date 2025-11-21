@@ -118,30 +118,26 @@ class TwelveLabsVideoFetcher:
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
 
-        # 对于 HLS 流，添加超时和重连参数以提高稳定性
-        cmd = [
-            "ffmpeg",
-            "-y",
-        ]
+        # 构建 FFmpeg 命令
+        cmd = ["ffmpeg", "-y"]
 
-        # 如果是 HLS 流（非本地文件），添加网络参数
+        # 如果是 HLS 流（非本地文件），在 -i 之前添加网络参数
+        # 注意：reconnect/timeout 参数必须在 -i 之前
         if not is_local and (source_url.startswith("http://") or source_url.startswith("https://")):
             cmd.extend([
-                "-timeout", "30000000",  # 30秒超时（微秒）
-                "-reconnect", "1",       # 启用重连
-                "-reconnect_streamed", "1",
-                "-reconnect_delay_max", "5",
+                "-reconnect", "1",              # 启用重连
+                "-reconnect_streamed", "1",     # 对流媒体也启用重连
+                "-reconnect_delay_max", "5",    # 最多延迟 5 秒重连
+                "-timeout", "30000000",         # 30秒超时（微秒）
             ])
 
+        # 对于 HLS 流，-ss 必须放在 -i 之后
+        # 因为 HLS 不支持在 demuxer 层面快速 seek
         cmd.extend([
-            "-ss",
-            f"{start_ms / 1000:.2f}",
-            "-i",
-            source_url,
-            "-t",
-            f"{duration:.2f}",
-            "-c",
-            "copy",
+            "-i", source_url,
+            "-ss", f"{start_ms / 1000:.2f}",
+            "-t", f"{duration:.2f}",
+            "-c", "copy",
             target.as_posix(),
         ])
 
