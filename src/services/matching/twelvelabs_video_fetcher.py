@@ -117,9 +117,23 @@ class TwelveLabsVideoFetcher:
         is_local: bool = False,
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
+
+        # 对于 HLS 流，添加超时和重连参数以提高稳定性
         cmd = [
             "ffmpeg",
             "-y",
+        ]
+
+        # 如果是 HLS 流（非本地文件），添加网络参数
+        if not is_local and (source_url.startswith("http://") or source_url.startswith("https://")):
+            cmd.extend([
+                "-timeout", "30000000",  # 30秒超时（微秒）
+                "-reconnect", "1",       # 启用重连
+                "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "5",
+            ])
+
+        cmd.extend([
             "-ss",
             f"{start_ms / 1000:.2f}",
             "-i",
@@ -129,7 +143,8 @@ class TwelveLabsVideoFetcher:
             "-c",
             "copy",
             target.as_posix(),
-        ]
+        ])
+
         try:
             logger.info(
                 "twelvelabs.video_clip",
@@ -139,13 +154,54 @@ class TwelveLabsVideoFetcher:
                 is_local=is_local,
             )
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if target.exists() and target.stat().st_size > 0:
+
+            # 验证文件是否真的包含视频流（不仅仅检查文件大小）
+            if target.exists() and self._verify_video_streams(target):
                 return True
+
+            # 如果文件存在但没有视频流，删除无效文件
+            if target.exists():
+                logger.warning(
+                    "twelvelabs.clip_no_streams",
+                    video_id=video_id,
+                    file_size=target.stat().st_size,
+                    target=target.as_posix(),
+                )
+                target.unlink()
+
         except FileNotFoundError:
             logger.error("ffmpeg.not_found", cmd=cmd)
         except subprocess.CalledProcessError as exc:  # noqa: BLE001
             logger.error("twelvelabs.clip_failed", video_id=video_id, returncode=exc.returncode)
         return False
+
+    def _verify_video_streams(self, video_path: Path) -> bool:
+        """使用 ffprobe 验证视频文件是否包含有效的视频流。"""
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path.as_posix(),
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            # 如果输出包含 "video"，说明有视频流
+            return "video" in result.stdout.lower()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("ffprobe.verify_failed", path=video_path.as_posix(), error=str(exc))
+            return False
 
     def _extract_stream_url(self, payload: dict[str, Any]) -> str | None:
         hls = payload.get("hls") or {}

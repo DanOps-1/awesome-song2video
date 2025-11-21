@@ -320,33 +320,39 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
 
     clips: list[Path] = []
     failed = 0
-    placeholder = 0
+    failed_clips: list[tuple[int, str]] = []  # (idx, video_id)
+
     for result in results:
         if result.status == "success" and result.path:
             clips.append(result.path)
         else:
             failed += 1
-            placeholder_path = tmp_path / f"placeholder_{result.task.idx}.mp4"
-            duration = lines[result.task.idx].end_time_ms - lines[result.task.idx].start_time_ms
-            try:
-                await asyncio.to_thread(write_placeholder_clip, placeholder_path, duration)
-                placeholder += 1
-                add_placeholder_clip(job_id=job_id, video_id=result.task.video_id)
-                clips.append(placeholder_path)
-                logger.warning(
-                    "render_worker.placeholder_inserted",
-                    clip_task_id=result.task.clip_task_id,
-                    job_id=job_id,
-                    video_id=result.task.video_id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error("render_worker.placeholder_failed", error=str(exc))
+            failed_clips.append((result.task.idx, result.task.video_id))
+            logger.error(
+                "render_worker.clip_download_failed",
+                clip_task_id=result.task.clip_task_id,
+                job_id=job_id,
+                video_id=result.task.video_id,
+                idx=result.task.idx,
+            )
+
+    # 如果有任何片段下载失败，抛出异常而不是用占位符掩盖
+    if failed > 0:
+        error_msg = f"Failed to download {failed}/{len(clip_tasks)} clips: {failed_clips[:5]}"
+        logger.error(
+            "render_worker.extract_clips_failed",
+            job_id=job_id,
+            failed=failed,
+            total=len(clip_tasks),
+            failed_clips=failed_clips,
+        )
+        raise RuntimeError(error_msg)
 
     clip_stats = build_clip_stats(
         total=len(clip_tasks),
         success=len(clips),
-        failed=failed,
-        placeholder=placeholder,
+        failed=0,  # 如果走到这里，说明没有失败
+        placeholder=0,
         durations=durations,
         peak_parallelism=peak_parallelism,
     )
