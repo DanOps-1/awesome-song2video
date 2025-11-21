@@ -137,29 +137,30 @@ class TimelineBuilder:
 
         segments = self._explode_segments(segments)
 
-        # 过滤非歌词内容（作词、作曲等 credits）
-        filtered_segments: list[dict[str, Any]] = []
+        # 标记非歌词内容（作词、作曲等 credits）
+        # 不删除这些片段，而是标记它们，后续使用 fallback 视频填充
+        non_lyric_count = 0
         for seg in segments:
             text = str(seg.get("text", "")).strip()
             if self._is_non_lyric_text(text):
+                seg["is_non_lyric"] = True  # 标记为非歌词
+                non_lyric_count += 1
                 self._logger.info(
-                    "timeline_builder.filter_non_lyric",
+                    "timeline_builder.mark_non_lyric",
                     text=text,
                     start_ms=int(float(seg.get("start", 0)) * 1000),
                     end_ms=int(float(seg.get("end", 0)) * 1000),
-                    message="过滤掉非歌词内容（credits）",
+                    message="标记为非歌词内容，将使用 fallback 视频填充",
                 )
-            else:
-                filtered_segments.append(seg)
 
-        self._logger.info(
-            "timeline_builder.filter_summary",
-            original_count=len(segments),
-            filtered_count=len(filtered_segments),
-            removed_count=len(segments) - len(filtered_segments),
-        )
-
-        segments = filtered_segments
+        if non_lyric_count > 0:
+            self._logger.info(
+                "timeline_builder.non_lyric_summary",
+                total_count=len(segments),
+                non_lyric_count=non_lyric_count,
+                lyric_count=len(segments) - non_lyric_count,
+                message=f"发现 {non_lyric_count} 个非歌词片段，将使用 fallback 视频",
+            )
 
         timeline = TimelineResult()
         for seg in segments:
@@ -174,8 +175,21 @@ class TimelineBuilder:
                 end_ms = start_ms + 1000
             else:
                 end_ms = int(float(end_value) * 1000)
-            # 获取更多候选片段以支持去重选择（增加到20个以提供更多去重空间）
-            candidates = await self._get_candidates(text, limit=20)
+
+            # 如果是非歌词内容，直接使用 fallback 视频，不搜索候选
+            if seg.get("is_non_lyric", False):
+                self._logger.info(
+                    "timeline_builder.use_fallback_for_non_lyric",
+                    text=text,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                )
+                # 返回空候选列表，_normalize_candidates 会自动使用 fallback
+                candidates = []
+            else:
+                # 获取更多候选片段以支持去重选择（增加到20个以提供更多去重空间）
+                candidates = await self._get_candidates(text, limit=20)
+
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
 
             # 选择未使用或使用次数最少的片段
