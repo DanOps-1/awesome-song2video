@@ -518,11 +518,13 @@ def _resolve_audio_path(mix: SongMixRequest | None) -> Path | None:
 
 
 def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -> None:
-    # 🔧 修复视频时长被截断问题
-    # 问题：使用 -shortest 会以最短流为准，如果视频片段总时长不足，会截断音频
-    # 解决：使用 -stream_loop 循环视频，确保视频时长 >= 音频时长
+    """将音频轨道附加到视频上。
 
-    # 先获取音频和视频时长
+    注意：
+    - 使用 -shortest 参数，以较短的流为准
+    - 如果视频和音频时长不匹配，会记录警告但正常处理
+    - 根本解决方案是在上游过滤非歌词内容和检测时长差异
+    """
     import subprocess
 
     def get_duration(path: Path) -> float:
@@ -536,51 +538,37 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -
     video_duration = get_duration(video_path)
     audio_duration = get_duration(audio_path)
 
+    diff = audio_duration - video_duration
     logger.info(
         "render_worker.attach_audio",
-        video_duration=video_duration,
-        audio_duration=audio_duration,
-        diff=audio_duration - video_duration,
+        video_duration=round(video_duration, 2),
+        audio_duration=round(audio_duration, 2),
+        diff=round(diff, 2),
     )
 
-    # 如果视频比音频短超过 5 秒，使用循环模式
-    if audio_duration > video_duration + 5.0:
-        shortfall = audio_duration - video_duration
+    # 如果时长差异显著，记录警告
+    if abs(diff) > 5.0:
         logger.warning(
-            "render_worker.video_too_short",
-            video_duration=video_duration,
-            audio_duration=audio_duration,
-            shortfall=shortfall,
-            message=f"视频比音频短 {shortfall:.1f}秒，使用循环模式填充",
+            "render_worker.duration_mismatch",
+            video_duration=round(video_duration, 2),
+            audio_duration=round(audio_duration, 2),
+            diff=round(diff, 2),
+            message=f"视频和音频时长差异较大: {diff:.1f}秒",
         )
-        # 使用 -stream_loop 循环视频直到超过音频时长
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-stream_loop", "-1",  # 无限循环视频
-            "-i", video_path.as_posix(),
-            "-i", audio_path.as_posix(),
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-shortest",  # 以音频时长为准（循环的视频会更长）
-            target_path.as_posix(),
-        ]
-    else:
-        # 视频时长足够（或差距很小），直接合并
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-i", video_path.as_posix(),
-            "-i", audio_path.as_posix(),
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-map", "0:v:0",
-            "-map", "1:a:0",
-            "-shortest",  # 以较短的流为准
-            target_path.as_posix(),
-        ]
+
+    # 直接合并音频和视频，使用 -shortest 以较短的流为准
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", video_path.as_posix(),
+        "-i", audio_path.as_posix(),
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-shortest",  # 以较短的流为准
+        target_path.as_posix(),
+    ]
 
     _run_ffmpeg(cmd)
 

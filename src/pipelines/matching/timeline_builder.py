@@ -71,6 +71,54 @@ class TimelineBuilder:
         # 重叠阈值：零容忍！任何重叠都不允许
         self._overlap_threshold = 0.0  # 任何重叠 > 0 就跳过
 
+    def _is_non_lyric_text(self, text: str) -> bool:
+        """
+        判断文本是否为非歌词内容（如作词、作曲、编曲等标注）。
+
+        识别模式：
+        - "作词 XX" / "词 XX"
+        - "作曲 XX" / "曲 XX"
+        - "编曲 XX" / "编 XX"
+        - "演唱 XX" / "唱 XX"
+        - "制作 XX"
+        - 纯英文的 credits（如 "Lyrics by", "Music by"）
+        """
+        text = text.strip()
+
+        # 中文 credits 模式
+        non_lyric_patterns = [
+            r'^作词[\s:：]',
+            r'^词[\s:：]',
+            r'^作曲[\s:：]',
+            r'^曲[\s:：]',
+            r'^编曲[\s:：]',
+            r'^编[\s:：]',
+            r'^演唱[\s:：]',
+            r'^唱[\s:：]',
+            r'^制作[\s:：]',
+            r'^监制[\s:：]',
+            r'^混音[\s:：]',
+            r'^母带[\s:：]',
+        ]
+
+        # 英文 credits 模式
+        english_patterns = [
+            r'(?i)^lyrics\s+by',
+            r'(?i)^music\s+by',
+            r'(?i)^composed\s+by',
+            r'(?i)^arranged\s+by',
+            r'(?i)^performed\s+by',
+            r'(?i)^produced\s+by',
+        ]
+
+        all_patterns = non_lyric_patterns + english_patterns
+
+        for pattern in all_patterns:
+            if re.search(pattern, text):
+                return True
+
+        return False
+
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
@@ -88,6 +136,30 @@ class TimelineBuilder:
             raise ValueError("必须提供音频或歌词")
 
         segments = self._explode_segments(segments)
+
+        # 过滤非歌词内容（作词、作曲等 credits）
+        filtered_segments: list[dict[str, Any]] = []
+        for seg in segments:
+            text = str(seg.get("text", "")).strip()
+            if self._is_non_lyric_text(text):
+                self._logger.info(
+                    "timeline_builder.filter_non_lyric",
+                    text=text,
+                    start_ms=int(float(seg.get("start", 0)) * 1000),
+                    end_ms=int(float(seg.get("end", 0)) * 1000),
+                    message="过滤掉非歌词内容（credits）",
+                )
+            else:
+                filtered_segments.append(seg)
+
+        self._logger.info(
+            "timeline_builder.filter_summary",
+            original_count=len(segments),
+            filtered_count=len(filtered_segments),
+            removed_count=len(segments) - len(filtered_segments),
+        )
+
+        segments = filtered_segments
 
         timeline = TimelineResult()
         for seg in segments:
@@ -131,12 +203,40 @@ class TimelineBuilder:
     def _normalize_candidates(
         self, raw_candidates: list[dict[str, int | float | str]], start_ms: int, end_ms: int
     ) -> list[dict[str, int | float | str]]:
-        def _candidate_defaults(candidate: dict[str, int | float | str]) -> dict[str, int | float | str]:
+        """
+        规范化候选视频片段，过滤掉时长严重不匹配的候选。
+
+        过滤策略：
+        - 如果 API 返回的视频片段时长与歌词时长相差超过阈值，则跳过该候选
+        - 阈值：歌词时长 ≥ 5秒 且 视频时长 < 歌词时长 50% 时过滤
+        - 例如：歌词 30 秒，但视频只有 5 秒 → 过滤掉
+        """
+        lyric_duration_ms = end_ms - start_ms
+        lyric_duration_s = lyric_duration_ms / 1000.0
+
+        def _candidate_defaults(candidate: dict[str, int | float | str]) -> dict[str, int | float | str] | None:
             # 🔧 修复: 从 API 返回片段的中间位置截取，以获得最匹配的画面
             # 原因：AI 匹配的精彩画面往往在片段中间，而不是开头
             api_start = int(candidate.get("start", start_ms))
             api_end = int(candidate.get("end", end_ms))
             lyric_duration = end_ms - start_ms
+
+            # 检查视频片段时长是否足够
+            api_duration_ms = api_end - api_start
+            api_duration_s = api_duration_ms / 1000.0
+
+            # 过滤策略：如果歌词时长 ≥ 5秒 且 视频时长 < 歌词时长的 50%，则过滤掉
+            if lyric_duration_s >= 5.0 and api_duration_ms < lyric_duration_ms * 0.5:
+                self._logger.warning(
+                    "timeline_builder.duration_mismatch",
+                    video_id=candidate.get("video_id"),
+                    lyric_duration_s=round(lyric_duration_s, 2),
+                    api_duration_s=round(api_duration_s, 2),
+                    shortage_s=round(lyric_duration_s - api_duration_s, 2),
+                    shortage_pct=round((1 - api_duration_s / lyric_duration_s) * 100, 1),
+                    message="视频片段时长严重不足，跳过该候选",
+                )
+                return None
 
             # 计算API片段的中间位置
             api_duration = api_end - api_start
@@ -164,12 +264,40 @@ class TimelineBuilder:
                 "api_start_ms": api_start,
                 "api_end_ms": api_end,
                 "api_middle_ms": api_middle,
+                "api_duration_ms": api_duration_ms,
                 "lyric_start_ms": start_ms,
                 "lyric_end_ms": end_ms,
+                "lyric_duration_ms": lyric_duration_ms,
             }
 
         if raw_candidates:
-            return [_candidate_defaults(c) for c in raw_candidates]
+            # 处理所有候选，过滤掉 None（时长不匹配的）
+            normalized = []
+            for c in raw_candidates:
+                result = _candidate_defaults(c)
+                if result is not None:
+                    normalized.append(result)
+
+            # 如果所有候选都被过滤掉了，返回 fallback
+            if not normalized:
+                self._logger.warning(
+                    "timeline_builder.all_candidates_filtered",
+                    lyric_duration_s=round(lyric_duration_s, 2),
+                    original_count=len(raw_candidates),
+                    message="所有候选视频时长都不匹配，使用 fallback 视频",
+                )
+                return [
+                    {
+                        "id": str(uuid4()),
+                        "source_video_id": self._settings.fallback_video_id,
+                        "start_time_ms": start_ms,
+                        "end_time_ms": end_ms,
+                        "score": 0.0,
+                    }
+                ]
+
+            return normalized
+
         return [
             {
                 "id": str(uuid4()),
