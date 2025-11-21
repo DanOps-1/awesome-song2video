@@ -9,6 +9,7 @@
 - 快速测试候选片段回退、SDK 集成等新功能
 - 保留完整日志输出
 """
+# ruff: noqa: E402
 
 from __future__ import annotations
 
@@ -20,11 +21,17 @@ from typing import Any
 from httpx import ASGITransport, AsyncClient
 
 # 将项目根目录添加到 Python 路径
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from src.api.app import app
+from src.api.main import app
 from src.infra.config.settings import get_settings
+from src.infra.observability.otel import configure_logging
 from src.infra.persistence.database import init_engine, init_models
+
+# 配置日志（在其他操作之前）
+configure_logging()
 
 DB_PATH = Path("test_audio_demo.db")
 
