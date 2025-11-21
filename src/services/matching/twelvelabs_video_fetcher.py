@@ -5,15 +5,12 @@
 
 from __future__ import annotations
 
-import random
 import subprocess
 import threading
-import time
 from pathlib import Path
-from typing import Any
 
-import httpx
 import structlog
+from twelvelabs import TwelveLabs
 
 from src.infra.config.settings import AppSettings, get_settings
 
@@ -21,15 +18,17 @@ logger = structlog.get_logger(__name__)
 
 
 class TwelveLabsVideoFetcher:
-    """基于 retrieve API 下载视频片段，不落本地全量文件。"""
+    """基于 TwelveLabs SDK 下载视频片段，不落本地全量文件。"""
 
     def __init__(self, settings: AppSettings | None = None) -> None:
         self._settings = settings or get_settings()
         self._live_enabled = bool(self._settings.tl_live_enabled)
-        self._base_urls = self._build_base_url_chain()
         self._stream_cache: dict[str, str] = {}
         self._locks_lock = threading.Lock()
         self._per_video_locks: dict[str, threading.Semaphore] = {}
+        self._client: TwelveLabs | None = None
+        if self._live_enabled:
+            self._init_client()
 
     def fetch_clip(self, video_id: str, start_ms: int, end_ms: int, target: Path) -> Path | None:
         """按时间窗拉取视频片段到目标路径（仅临时使用，不保留全量文件）。"""
@@ -71,46 +70,55 @@ class TwelveLabsVideoFetcher:
         logger.warning("twelvelabs.clip_unavailable", video_id=video_id, start_ms=start_ms, end_ms=end_ms)
         return None
 
-    def _retrieve_video_payload(self, video_id: str) -> dict[str, Any] | None:
-        headers = {"x-api-key": self._settings.tl_api_key}
-        for base in self._base_urls:
-            url = self._build_retrieve_url(base, video_id)
-            try:
-                time.sleep(random.uniform(0, 0.5))
-                response = httpx.get(url, headers=headers, timeout=30.0)
-                response.raise_for_status()
-                logger.info("twelvelabs.retrieve_success", video_id=video_id, base_url=base or "default")
-                payload: dict[str, Any] = response.json()
-                return payload
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "twelvelabs.retrieve_http_error",
-                    video_id=video_id,
-                    base_url=base or "default",
-                    status=exc.response.status_code,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "twelvelabs.retrieve_exception",
-                    video_id=video_id,
-                    base_url=base or "default",
-                    error=str(exc),
-                )
-        return None
+    def _init_client(self) -> None:
+        """初始化 TwelveLabs SDK 客户端。"""
+        try:
+            self._client = TwelveLabs(api_key=self._settings.tl_api_key)
+            logger.info("twelvelabs.sdk_initialized")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("twelvelabs.sdk_init_failed", error=str(exc))
+            self._client = None
 
     def _get_stream_url(self, video_id: str) -> str | None:
+        """使用 SDK 获取视频的 HLS 流 URL。"""
         if video_id in self._stream_cache:
             return self._stream_cache[video_id]
-        payload = self._retrieve_video_payload(video_id)
-        if payload is None:
-            logger.warning("twelvelabs.retrieve_failed_all", video_id=video_id)
+
+        if not self._client:
+            logger.error("twelvelabs.sdk_not_initialized")
             return None
-        stream_url = self._extract_stream_url(payload)
-        if not stream_url:
-            logger.error("twelvelabs.video_url_missing", video_id=video_id)
+
+        try:
+            # 使用 SDK 获取视频信息
+            # SDK 的 API 结构：client.index.video.retrieve()
+            video = self._client.index.video.retrieve(  # type: ignore[attr-defined]
+                index_id=self._settings.tl_index_id,
+                id=video_id,
+            )
+
+            # 从响应中提取 HLS URL
+            stream_url: str | None = None
+            if hasattr(video, "hls") and video.hls:
+                video_url_attr = getattr(video.hls, "video_url", None)
+                if video_url_attr:
+                    stream_url = str(video_url_attr)
+
+            if not stream_url:
+                logger.error("twelvelabs.video_url_missing", video_id=video_id)
+                return None
+
+            logger.info("twelvelabs.retrieve_success", video_id=video_id)
+            self._stream_cache[video_id] = stream_url
+            return stream_url
+
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "twelvelabs.retrieve_failed",
+                video_id=video_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             return None
-        self._stream_cache[video_id] = stream_url
-        return stream_url
 
     def _cut_clip(
         self,
@@ -243,36 +251,6 @@ class TwelveLabsVideoFetcher:
         except Exception as exc:  # noqa: BLE001
             logger.error("ffprobe.verify_failed", path=video_path.as_posix(), error=str(exc))
             return False
-
-    def _extract_stream_url(self, payload: dict[str, Any]) -> str | None:
-        hls = payload.get("hls") or {}
-        video_url = hls.get("video_url")
-        if video_url:
-            return str(video_url)
-        fallback_url = payload.get("video_url")
-        return str(fallback_url) if fallback_url else None
-
-    def _build_base_url_chain(self) -> list[str | None]:
-        urls: list[str | None] = []
-        custom = self._settings.tl_api_base_url
-        if custom:
-            urls.append(custom.rstrip("/"))
-        urls.append(None)  # 默认 https://api.twelvelabs.io
-        urls.append("https://api.twelvelabs.com/v1.3")
-        seen: set[str | None] = set()
-        unique: list[str | None] = []
-        for url in urls:
-            if url not in seen:
-                unique.append(url)
-                seen.add(url)
-        return unique
-
-    def _build_retrieve_url(self, base: str | None, video_id: str) -> str:
-        prefix = base or "https://api.twelvelabs.io"
-        prefix = prefix.rstrip("/")
-        if not prefix.endswith("/v1.3"):
-            prefix = f"{prefix}/v1.3"
-        return f"{prefix}/indexes/{self._settings.tl_index_id}/videos/{video_id}"
 
     def _get_video_lock(self, video_id: str) -> threading.Semaphore:
         with self._locks_lock:
