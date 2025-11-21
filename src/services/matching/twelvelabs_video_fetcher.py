@@ -122,13 +122,12 @@ class TwelveLabsVideoFetcher:
         cmd = ["ffmpeg", "-y"]
 
         # 如果是 HLS 流（非本地文件），在 -i 之前添加网络参数
-        # 注意：reconnect/timeout 参数必须在 -i 之前
+        # 注意：reconnect 参数必须在 -i 之前
         if not is_local and (source_url.startswith("http://") or source_url.startswith("https://")):
             cmd.extend([
                 "-reconnect", "1",              # 启用重连
                 "-reconnect_streamed", "1",     # 对流媒体也启用重连
                 "-reconnect_delay_max", "5",    # 最多延迟 5 秒重连
-                "-timeout", "30000000",         # 30秒超时（微秒）
             ])
 
         # 对于 HLS 流，-ss 必须放在 -i 之后
