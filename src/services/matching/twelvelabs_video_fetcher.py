@@ -185,23 +185,20 @@ class TwelveLabsVideoFetcher:
             )
 
             # 验证文件是否真的包含视频流
-            # 1. 文件大小检查：正常视频片段至少应该有几十KB
-            # 2. 视频流检查：使用 ffprobe 确认有有效视频流
+            # 使用 ffprobe 确认有有效视频流（不依赖文件大小判断）
             if target.exists():
                 file_size = target.stat().st_size
-                # 小于 50KB 的文件很可能是不完整的
-                if file_size < 50 * 1024:
-                    logger.warning(
-                        "twelvelabs.clip_too_small",
-                        video_id=video_id,
-                        file_size=file_size,
-                        target=target.as_posix(),
-                    )
-                    target.unlink()
-                    return False
 
-                # 进一步用 ffprobe 验证
+                # 用 ffprobe 验证是否有视频流
                 if self._verify_video_streams(target):
+                    # 文件有效，记录大小供参考
+                    if file_size < 50 * 1024:
+                        logger.info(
+                            "twelvelabs.clip_small_but_valid",
+                            video_id=video_id,
+                            file_size=file_size,
+                            target=target.as_posix(),
+                        )
                     return True
 
                 # 有文件但没有视频流
