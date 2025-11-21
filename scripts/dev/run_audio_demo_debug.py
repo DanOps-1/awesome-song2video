@@ -113,17 +113,47 @@ async def run_demo() -> dict[str, Any]:
         )
         resp.raise_for_status()
         result = resp.json()
+        job_id = result["job_id"]
+
+        # 等待渲染完成（同步模式下应该立即完成）
+        # 为了健壮性，添加轮询检查
+        import time
+        max_wait = 60  # 最多等 60 秒
+        poll_interval = 0.5
+        elapsed = 0.0
+
+        while elapsed < max_wait:
+            resp = await client.get(f"/api/v1/mixes/{mix_id}/render", params={"job_id": job_id})
+            resp.raise_for_status()
+            status_data = resp.json()
+            status = status_data.get("status")
+
+            if status in ("completed", "failed"):
+                break
+
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # 从数据库查询最终输出路径
+        from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
+        job_repo = RenderJobRepository()
+        job = await job_repo.get(job_id)
+
+        output_path = None
+        if job and job.output_asset_id:
+            output_path = job.output_asset_id
 
         print(f"\n{'=' * 60}")
         print("调试测试完成！")
         print(f"{'=' * 60}")
         print(f"Mix ID: {mix_id}")
-        print(f"Job ID: {result.get('job_id')}")
-        print(f"输出视频: {result.get('output_path')}")
+        print(f"Job ID: {job_id}")
+        print(f"状态: {status}")
+        print(f"输出视频: {output_path or '未找到'}")
         print("音频时长: 20 秒")
         print(f"{'=' * 60}\n")
 
-        return result
+        return {"job_id": job_id, "status": status, "output_path": output_path}
 
 
 def main() -> None:
