@@ -15,13 +15,24 @@ RESOLUTION_MAP = {
 
 
 @dataclass
+class VideoCandidate:
+    """单个候选视频片段。"""
+
+    video_id: str
+    start_ms: int
+    end_ms: int
+    score: float
+
+
+@dataclass
 class RenderLine:
-    source_video_id: str
+    source_video_id: str  # 主要候选（第一个）
     start_time_ms: int
     end_time_ms: int
     lyrics: str
     lyric_start_ms: int
     lyric_end_ms: int
+    candidates: list[VideoCandidate] | None = None  # 所有候选片段（包括第一个）
 
 
 class FFMpegScriptBuilder:

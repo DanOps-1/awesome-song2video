@@ -22,7 +22,6 @@ from src.infra.config.settings import get_settings
 from src.infra.messaging.render_config_watcher import RenderConfigWatcher
 from src.infra.observability.preview_render_metrics import (
     add_clip_failure,
-    add_placeholder_clip,
     observe_clip_duration,
     push_render_metrics,
     set_clip_inflight,
@@ -32,7 +31,7 @@ from src.infra.persistence.repositories.render_job_repository import RenderJobRe
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.pipelines.rendering.ffmpeg_script_builder import FFMpegScriptBuilder, RenderLine
 from src.services.matching.twelvelabs_video_fetcher import video_fetcher
-from src.services.render.placeholder_manager import cleanup_tmp_root, ensure_tmp_root, write_placeholder_clip
+from src.services.render.placeholder_manager import cleanup_tmp_root, ensure_tmp_root
 from src.workers import BaseWorkerSettings
 
 logger = structlog.get_logger(__name__)
@@ -217,6 +216,8 @@ async def _render_mix_impl(job_id: str) -> None:
 
 
 def _build_render_line(line: LyricLine) -> RenderLine:
+    from src.pipelines.rendering.ffmpeg_script_builder import VideoCandidate
+
     candidates = getattr(line, "candidates", []) or []
     if line.selected_segment_id and candidates:
         selected = next((c for c in candidates if c.id == line.selected_segment_id), None)
@@ -225,6 +226,18 @@ def _build_render_line(line: LyricLine) -> RenderLine:
     source_video_id = selected.source_video_id if selected else settings.fallback_video_id
     start_ms = selected.start_time_ms if selected else line.start_time_ms
     end_ms = selected.end_time_ms if selected else line.end_time_ms
+
+    # 转换所有候选片段为 VideoCandidate
+    video_candidates = [
+        VideoCandidate(
+            video_id=c.source_video_id,
+            start_ms=c.start_time_ms,
+            end_ms=c.end_time_ms,
+            score=getattr(c, "score", 0.0),
+        )
+        for c in candidates
+    ] if candidates else None
+
     return RenderLine(
         source_video_id=source_video_id,
         start_time_ms=start_ms,
@@ -232,6 +245,7 @@ def _build_render_line(line: LyricLine) -> RenderLine:
         lyrics=line.original_text,
         lyric_start_ms=line.start_time_ms,
         lyric_end_ms=line.end_time_ms,
+        candidates=video_candidates,
     )
 
 
@@ -273,8 +287,76 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
             job_id=job_id,
             video_id=task.video_id,
             parallel_slot=parallel_slot,
+            total_candidates=len(line.candidates) if line.candidates else 1,
         )
         start = time.perf_counter()
+
+        # 获取候选列表（如果有的话）
+        candidates_to_try = line.candidates if line.candidates else None
+        last_error: Exception | None = None
+
+        # 如果有多个候选，依次尝试
+        if candidates_to_try and len(candidates_to_try) > 1:
+            for idx, candidate in enumerate(candidates_to_try):
+                try:
+                    logger.info(
+                        "render_worker.try_candidate",
+                        clip_task_id=task.clip_task_id,
+                        job_id=job_id,
+                        candidate_idx=idx,
+                        total_candidates=len(candidates_to_try),
+                        video_id=candidate.video_id,
+                        score=candidate.score,
+                    )
+                    clip_path = await asyncio.to_thread(
+                        video_fetcher.fetch_clip,
+                        candidate.video_id,
+                        candidate.start_ms,
+                        candidate.end_ms,
+                        task.target_path,
+                    )
+                    if clip_path and clip_path.exists():
+                        # 成功！
+                        duration_ms = (time.perf_counter() - start) * 1000
+                        observe_clip_duration(duration_ms, job_id=job_id, video_id=candidate.video_id)
+                        async with duration_lock:
+                            durations.append(duration_ms)
+                        logger.info(
+                            "render_worker.clip_task_end",
+                            clip_task_id=task.clip_task_id,
+                            job_id=job_id,
+                            video_id=candidate.video_id,
+                            candidate_idx=idx,
+                            status="success",
+                            duration_ms=round(duration_ms, 2),
+                            parallel_slot=parallel_slot,
+                        )
+                        return ClipDownloadResult(task=task, status="success", path=clip_path, duration_ms=duration_ms)
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    logger.warning(
+                        "render_worker.candidate_failed",
+                        clip_task_id=task.clip_task_id,
+                        job_id=job_id,
+                        candidate_idx=idx,
+                        video_id=candidate.video_id,
+                        error=str(exc),
+                        will_retry=idx < len(candidates_to_try) - 1,
+                    )
+                    # 继续尝试下一个候选
+                    continue
+
+            # 所有候选都失败了
+            add_clip_failure(job_id=job_id, video_id=task.video_id, reason="all_candidates_failed")
+            logger.error(
+                "render_worker.all_candidates_failed",
+                clip_task_id=task.clip_task_id,
+                job_id=job_id,
+                total_tried=len(candidates_to_try),
+            )
+            raise RuntimeError(f"All {len(candidates_to_try)} candidates failed") from last_error
+
+        # 没有多个候选，使用原有逻辑
         try:
             clip_path = await asyncio.to_thread(
                 video_fetcher.fetch_clip,
@@ -379,7 +461,7 @@ def _format_timestamp(ms: int) -> str:
 def _run_ffmpeg(cmd: list[str]) -> None:
     try:
         logger.info("render_worker.ffmpeg", cmd=" ".join(cmd))
-        result = subprocess.run(
+        subprocess.run(
             cmd,
             check=True,
             stdout=subprocess.PIPE,
