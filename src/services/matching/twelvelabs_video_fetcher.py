@@ -155,6 +155,37 @@ class TwelveLabsVideoFetcher:
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
 
+        # 🛡️ 边界检查：获取源视频时长，防止裁剪范围超出
+        source_duration_ms = self._get_video_duration_ms(source_url)
+        if source_duration_ms and start_ms >= source_duration_ms:
+            logger.warning(
+                "twelvelabs.clip_out_of_bounds",
+                video_id=video_id,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source_duration_ms=source_duration_ms,
+                message="裁剪起始时间超出视频时长，尝试循环裁剪",
+            )
+            # 使用循环输入（-stream_loop）从头开始裁剪所需时长
+            return self._cut_clip_with_loop(source_url, duration, target, video_id)
+
+        # 如果裁剪结束时间超出，调整到视频末尾
+        if source_duration_ms and end_ms > source_duration_ms:
+            original_end = end_ms
+            # 调整裁剪范围到视频末尾
+            end_ms = int(source_duration_ms)
+            start_ms = max(0, end_ms - int(duration * 1000))
+            duration = (end_ms - start_ms) / 1000.0
+            logger.warning(
+                "twelvelabs.clip_adjusted",
+                video_id=video_id,
+                original_start_ms=start_ms,
+                original_end_ms=original_end,
+                adjusted_start_ms=start_ms,
+                adjusted_end_ms=end_ms,
+                source_duration_ms=source_duration_ms,
+            )
+
         # 🔧 修复音频画面不对齐问题：使用精确裁剪模式
         # 问题原因：
         #   1. -ss 在 -i 之前（input seeking）只能定位到最近的关键帧，导致每个片段时长不精确
@@ -240,6 +271,103 @@ class TwelveLabsVideoFetcher:
                 returncode=exc.returncode,
                 ffmpeg_error=error_lines,
             )
+        return False
+
+    def _get_video_duration_ms(self, source_url: str) -> int | None:
+        """使用 ffprobe 获取视频时长（毫秒）。
+
+        Args:
+            source_url: 视频文件路径或 URL
+
+        Returns:
+            视频时长（毫秒），获取失败返回 None
+        """
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            source_url,
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                duration_seconds = float(result.stdout.strip())
+                return int(duration_seconds * 1000)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ffprobe.duration_failed", source=source_url, error=str(exc))
+        return None
+
+    def _cut_clip_with_loop(self, source_url: str, duration: float, target: Path, video_id: str) -> bool:
+        """使用循环模式裁剪视频（当起始时间超出视频时长时）。
+
+        FFmpeg -stream_loop 参数会循环输入流，从头开始裁剪所需时长。
+
+        Args:
+            source_url: 视频文件路径或 URL
+            duration: 需要裁剪的时长（秒）
+            target: 输出文件路径
+            video_id: 视频 ID（用于日志）
+
+        Returns:
+            是否成功
+        """
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-stream_loop", "-1",  # 无限循环输入流
+            "-i", source_url,
+            "-t", f"{duration:.3f}",  # 从头裁剪指定时长
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            target.as_posix(),
+        ]
+
+        try:
+            logger.info(
+                "twelvelabs.video_clip_loop",
+                video_id=video_id,
+                target=target.as_posix(),
+                source=source_url,
+                duration=duration,
+            )
+            subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            # 验证输出文件
+            if target.exists() and self._verify_video_streams(target):
+                return True
+
+            logger.warning("twelvelabs.clip_loop_failed", video_id=video_id, target=target.as_posix())
+            if target.exists():
+                target.unlink()
+
+        except subprocess.CalledProcessError as exc:  # noqa: BLE001
+            stderr_output = exc.stderr if exc.stderr else ""
+            error_lines = stderr_output.strip().split("\n")[-5:] if stderr_output else []
+            logger.error(
+                "twelvelabs.clip_loop_failed",
+                video_id=video_id,
+                returncode=exc.returncode,
+                ffmpeg_error=error_lines,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("twelvelabs.clip_loop_exception", video_id=video_id, error=str(exc))
+
         return False
 
     def _verify_video_streams(self, video_path: Path) -> bool:
