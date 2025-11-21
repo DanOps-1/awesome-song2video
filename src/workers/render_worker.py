@@ -518,24 +518,70 @@ def _resolve_audio_path(mix: SongMixRequest | None) -> Path | None:
 
 
 def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -> None:
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        video_path.as_posix(),
-        "-i",
-        audio_path.as_posix(),
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-shortest",
-        target_path.as_posix(),
-    ]
+    # 🔧 修复视频时长被截断问题
+    # 问题：使用 -shortest 会以最短流为准，如果视频片段总时长不足，会截断音频
+    # 解决：使用 tpad 滤镜延长视频（冻结最后一帧），确保视频时长 >= 音频时长
+
+    # 先获取音频和视频时长
+    import subprocess
+
+    def get_duration(path: Path) -> float:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path.as_posix()],
+            capture_output=True, text=True, check=False
+        )
+        return float(result.stdout.strip()) if result.returncode == 0 else 0.0
+
+    video_duration = get_duration(video_path)
+    audio_duration = get_duration(audio_path)
+
+    logger.info(
+        "render_worker.attach_audio",
+        video_duration=video_duration,
+        audio_duration=audio_duration,
+        diff=audio_duration - video_duration,
+    )
+
+    if audio_duration > video_duration + 0.5:  # 音频比视频长超过0.5秒
+        # 使用 tpad 滤镜延长视频（冻结最后一帧）
+        pad_duration = audio_duration - video_duration
+        logger.warning(
+            "render_worker.video_too_short",
+            video_duration=video_duration,
+            audio_duration=audio_duration,
+            pad_duration=pad_duration,
+            message="视频比音频短，将冻结最后一帧补齐",
+        )
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path.as_posix(),
+            "-i", audio_path.as_posix(),
+            "-filter_complex",
+            f"[0:v]tpad=stop_mode=clone:stop_duration={pad_duration}[v]",
+            "-map", "[v]",
+            "-map", "1:a:0",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-c:a", "aac",
+            target_path.as_posix(),
+        ]
+    else:
+        # 视频时长足够，直接复制
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", video_path.as_posix(),
+            "-i", audio_path.as_posix(),
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-shortest",  # 视频够长时使用 -shortest
+            target_path.as_posix(),
+        ]
+
     _run_ffmpeg(cmd)
 
 
