@@ -52,9 +52,21 @@ class FFMpegScriptBuilder:
         return script
 
     def write_edl(self, lines: Iterable[RenderLine], output_path: Path) -> None:
+        # 序列化时排除 candidates 字段（仅用于运行时回退）
+        serialized_lines = [
+            {
+                "source_video_id": line.source_video_id,
+                "start_time_ms": line.start_time_ms,
+                "end_time_ms": line.end_time_ms,
+                "lyrics": line.lyrics,
+                "lyric_start_ms": line.lyric_start_ms,
+                "lyric_end_ms": line.lyric_end_ms,
+            }
+            for line in lines
+        ]
         data = {
             "resolution": self.resolution,
             "frame_rate": self.frame_rate,
-            "lines": [line.__dict__ for line in lines],
+            "lines": serialized_lines,
         }
         output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
