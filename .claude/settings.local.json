@@ -37,7 +37,10 @@
       "Bash(pytest:*)",
       "Bash(git checkout:*)",
       "Bash(git merge:*)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(xargs ls:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(git revert:*)"
     ],
     "deny": [],
     "ask": []
