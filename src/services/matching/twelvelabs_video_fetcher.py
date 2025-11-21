@@ -52,14 +52,11 @@ class TwelveLabsVideoFetcher:
             try:
                 stream_url = self._get_stream_url(video_id)
                 if stream_url:
-                    # 先尝试 -c copy（快速但可能失败）
+                    # 只尝试 -c copy（快速，不重新编码）
+                    # 如果失败，返回 None 触发候选片段回退
                     if self._cut_clip(stream_url, start_ms, end_ms, target, video_id, use_reencode=False):
                         return target
-
-                    # -c copy 失败，回退到重新编码（慢但更可靠）
-                    logger.info("twelvelabs.retry_with_reencode", video_id=video_id)
-                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id, use_reencode=True):
-                        return target
+                    # 不再回退到重新编码，让上层尝试下一个候选片段
             finally:
                 lock.release()
 
