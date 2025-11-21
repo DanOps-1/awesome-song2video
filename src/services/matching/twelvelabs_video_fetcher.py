@@ -51,7 +51,13 @@ class TwelveLabsVideoFetcher:
             try:
                 stream_url = self._get_stream_url(video_id)
                 if stream_url:
-                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id):
+                    # 先尝试 -c copy（快速但可能失败）
+                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id, use_reencode=False):
+                        return target
+
+                    # -c copy 失败，回退到重新编码（慢但更可靠）
+                    logger.info("twelvelabs.retry_with_reencode", video_id=video_id)
+                    if self._cut_clip(stream_url, start_ms, end_ms, target, video_id, use_reencode=True):
                         return target
             finally:
                 lock.release()
@@ -115,6 +121,7 @@ class TwelveLabsVideoFetcher:
         video_id: str,
         *,
         is_local: bool = False,
+        use_reencode: bool = False,
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
 
@@ -132,13 +139,22 @@ class TwelveLabsVideoFetcher:
 
         # 对于 HLS 流，-ss 必须放在 -i 之后
         # 因为 HLS 不支持在 demuxer 层面快速 seek
-        cmd.extend([
-            "-i", source_url,
-            "-ss", f"{start_ms / 1000:.2f}",
-            "-t", f"{duration:.2f}",
-            "-c", "copy",
-            target.as_posix(),
-        ])
+        cmd.extend(["-i", source_url, "-ss", f"{start_ms / 1000:.2f}", "-t", f"{duration:.2f}"])
+
+        # 编码策略：优先使用 -c copy，失败时回退到重新编码
+        if use_reencode:
+            # 使用快速编码参数，在质量和速度之间平衡
+            cmd.extend([
+                "-c:v", "libx264",
+                "-preset", "veryfast",  # 最快的编码速度
+                "-crf", "18",           # 高质量（18 比默认 23 更高）
+                "-c:a", "aac",
+                "-b:a", "128k",
+            ])
+        else:
+            cmd.extend(["-c", "copy"])
+
+        cmd.append(target.as_posix())
 
         try:
             logger.info(
@@ -156,16 +172,31 @@ class TwelveLabsVideoFetcher:
                 text=True,
             )
 
-            # 验证文件是否真的包含视频流（不仅仅检查文件大小）
-            if target.exists() and self._verify_video_streams(target):
-                return True
-
-            # 如果文件存在但没有视频流，删除无效文件
+            # 验证文件是否真的包含视频流
+            # 1. 文件大小检查：正常视频片段至少应该有几十KB
+            # 2. 视频流检查：使用 ffprobe 确认有有效视频流
             if target.exists():
+                file_size = target.stat().st_size
+                # 小于 50KB 的文件很可能是不完整的
+                if file_size < 50 * 1024:
+                    logger.warning(
+                        "twelvelabs.clip_too_small",
+                        video_id=video_id,
+                        file_size=file_size,
+                        target=target.as_posix(),
+                    )
+                    target.unlink()
+                    return False
+
+                # 进一步用 ffprobe 验证
+                if self._verify_video_streams(target):
+                    return True
+
+                # 有文件但没有视频流
                 logger.warning(
                     "twelvelabs.clip_no_streams",
                     video_id=video_id,
-                    file_size=target.stat().st_size,
+                    file_size=file_size,
                     target=target.as_posix(),
                 )
                 target.unlink()
