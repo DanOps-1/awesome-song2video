@@ -152,36 +152,22 @@ class TwelveLabsVideoFetcher:
     ) -> bool:
         duration = max((end_ms - start_ms) / 1000.0, 0.5)
 
-        # 构建 FFmpeg 命令
-        cmd = ["ffmpeg", "-y"]
-
-        # 如果是 HLS 流（非本地文件），在 -i 之前添加网络参数
-        # 注意：reconnect 参数必须在 -i 之前
-        if not is_local and (source_url.startswith("http://") or source_url.startswith("https://")):
-            cmd.extend([
-                "-reconnect", "1",              # 启用重连
-                "-reconnect_streamed", "1",     # 对流媒体也启用重连
-                "-reconnect_delay_max", "5",    # 最多延迟 5 秒重连
-            ])
-
-        # 对于 HLS 流，-ss 必须放在 -i 之后
-        # 因为 HLS 不支持在 demuxer 层面快速 seek
-        cmd.extend(["-i", source_url, "-ss", f"{start_ms / 1000:.2f}", "-t", f"{duration:.2f}"])
-
-        # 编码策略：优先使用 -c copy，失败时回退到重新编码
-        if use_reencode:
-            # 使用快速编码参数，在质量和速度之间平衡
-            cmd.extend([
-                "-c:v", "libx264",
-                "-preset", "veryfast",  # 最快的编码速度
-                "-crf", "18",           # 高质量（18 比默认 23 更高）
-                "-c:a", "aac",
-                "-b:a", "128k",
-            ])
-        else:
-            cmd.extend(["-c", "copy"])
-
-        cmd.append(target.as_posix())
+        # 使用 71b30f8 工作版本的简单 FFmpeg 命令
+        # -ss 在 -i 之前 = input seeking（快速但可能不精确）
+        # -c copy = 流复制（快速，无转码）
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{start_ms / 1000:.2f}",
+            "-i",
+            source_url,
+            "-t",
+            f"{duration:.2f}",
+            "-c",
+            "copy",
+            target.as_posix(),
+        ]
 
         try:
             logger.info(
