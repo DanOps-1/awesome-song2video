@@ -153,7 +153,13 @@ class TwelveLabsVideoFetcher:
                 source=source_url,
                 is_local=is_local,
             )
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            result = subprocess.run(
+                cmd,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
 
             # 验证文件是否真的包含视频流（不仅仅检查文件大小）
             if target.exists() and self._verify_video_streams(target):
@@ -172,7 +178,16 @@ class TwelveLabsVideoFetcher:
         except FileNotFoundError:
             logger.error("ffmpeg.not_found", cmd=cmd)
         except subprocess.CalledProcessError as exc:  # noqa: BLE001
-            logger.error("twelvelabs.clip_failed", video_id=video_id, returncode=exc.returncode)
+            # 输出 FFmpeg 的错误信息以便诊断
+            stderr_output = exc.stderr if exc.stderr else ""
+            # 只输出最后几行关键错误
+            error_lines = stderr_output.strip().split("\n")[-5:] if stderr_output else []
+            logger.error(
+                "twelvelabs.clip_failed",
+                video_id=video_id,
+                returncode=exc.returncode,
+                ffmpeg_error=error_lines,
+            )
         return False
 
     def _verify_video_streams(self, video_path: Path) -> bool:
