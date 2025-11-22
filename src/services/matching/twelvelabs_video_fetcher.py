@@ -28,6 +28,7 @@ class TwelveLabsVideoFetcher:
         self._live_enabled = bool(self._settings.tl_live_enabled)
         self._base_urls = self._build_base_url_chain()
         self._stream_cache: dict[str, str] = {}
+        self._duration_cache: dict[str, int] = {}
         self._locks_lock = threading.Lock()
         self._per_video_locks: dict[str, threading.Semaphore] = {}
 
@@ -157,34 +158,32 @@ class TwelveLabsVideoFetcher:
 
         # 🛡️ 边界检查：获取源视频时长，防止裁剪范围超出
         source_duration_ms = self._get_video_duration_ms(source_url)
-        if source_duration_ms and start_ms >= source_duration_ms:
-            logger.warning(
-                "twelvelabs.clip_out_of_bounds",
-                video_id=video_id,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                source_duration_ms=source_duration_ms,
-                message="裁剪起始时间超出视频时长，尝试循环裁剪",
-            )
-            # 使用循环输入（-stream_loop）从头开始裁剪所需时长
-            return self._cut_clip_with_loop(source_url, duration, target, video_id)
-
-        # 如果裁剪结束时间超出，调整到视频末尾
-        if source_duration_ms and end_ms > source_duration_ms:
-            original_end = end_ms
-            # 调整裁剪范围到视频末尾
-            end_ms = int(source_duration_ms)
-            start_ms = max(0, end_ms - int(duration * 1000))
-            duration = (end_ms - start_ms) / 1000.0
-            logger.warning(
-                "twelvelabs.clip_adjusted",
-                video_id=video_id,
-                original_start_ms=start_ms,
-                original_end_ms=original_end,
-                adjusted_start_ms=start_ms,
-                adjusted_end_ms=end_ms,
-                source_duration_ms=source_duration_ms,
-            )
+        if source_duration_ms:
+            # 情况 1: 起始时间就超出了 -> 必须循环
+            if start_ms >= source_duration_ms:
+                logger.warning(
+                    "twelvelabs.clip_out_of_bounds",
+                    video_id=video_id,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    source_duration_ms=source_duration_ms,
+                    message="裁剪起始时间超出视频时长，切换至循环模式",
+                )
+                return self._cut_clip_with_loop(source_url, duration, target, video_id)
+            
+            # 情况 2: 结束时间超出 -> 必须循环以保证时长 (Duration is King!)
+            # 之前的逻辑是 truncate，导致音画不同步。现在改为循环。
+            if end_ms > source_duration_ms:
+                logger.warning(
+                    "twelvelabs.clip_exceeds_duration",
+                    video_id=video_id,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    duration_needed=duration,
+                    source_duration_ms=source_duration_ms,
+                    message="裁剪范围超出视频末尾，切换至循环模式以保证时长对齐",
+                )
+                return self._cut_clip_with_loop(source_url, duration, target, video_id)
 
         # 🔧 修复音频画面不对齐问题：使用精确裁剪模式
         # 问题原因：
@@ -274,14 +273,10 @@ class TwelveLabsVideoFetcher:
         return False
 
     def _get_video_duration_ms(self, source_url: str) -> int | None:
-        """使用 ffprobe 获取视频时长（毫秒）。
-
-        Args:
-            source_url: 视频文件路径或 URL
-
-        Returns:
-            视频时长（毫秒），获取失败返回 None
-        """
+        """使用 ffprobe 获取视频时长（毫秒）。"""
+        if source_url in self._duration_cache:
+            return self._duration_cache[source_url]
+            
         cmd = [
             "ffprobe",
             "-v", "error",
@@ -300,7 +295,9 @@ class TwelveLabsVideoFetcher:
             )
             if result.returncode == 0 and result.stdout.strip():
                 duration_seconds = float(result.stdout.strip())
-                return int(duration_seconds * 1000)
+                ms = int(duration_seconds * 1000)
+                self._duration_cache[source_url] = ms
+                return ms
         except Exception as exc:  # noqa: BLE001
             logger.warning("ffprobe.duration_failed", source=source_url, error=str(exc))
         return None
