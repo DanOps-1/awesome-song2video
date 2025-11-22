@@ -634,12 +634,19 @@ class TimelineBuilder:
         1. 优先选择未使用过的片段
         2. 如果没有未使用的片段，允许使用次数最少的片段（避免完全无片段可用）
         3. 按评分排序选择最佳的
+        
+        **改进策略**：
+        - 维护一个 "rejected_candidates" 列表。
+        - 如果由于严格的去重（零容忍）导致没有选出任何片段，则从 rejected 中选择重叠度最小的片段。
+        - 宁可稍微重叠，也不要 Fallback。
         """
         if not candidates:
             return []
 
         # 为每个候选片段计算使用次数和评分，并检测时间重叠
         candidates_with_usage: list[CandidateWithUsage] = []
+        rejected_candidates: list[dict] = []  # 存储因重叠被拒绝的候选
+
         for candidate in candidates:
             video_id = str(candidate.get("source_video_id", ""))
             start_ms = int(candidate.get("start_time_ms", 0))
@@ -648,6 +655,8 @@ class TimelineBuilder:
             # 检查是否与已使用的片段有任何重叠（零容忍！）
             has_overlap = False
             overlapping_segment = None
+            current_overlap_ratio = 0.0
+            
             for used_key in self._used_segments.keys():
                 used_video_id, used_start, used_end = used_key
                 if used_video_id == video_id:
@@ -655,20 +664,28 @@ class TimelineBuilder:
                     if overlap_ratio > 0:  # 任何重叠都不允许！
                         has_overlap = True
                         overlapping_segment = used_key
-                        self._logger.warning(
-                            "timeline_builder.overlap_rejected",
-                            video_id=video_id,
-                            start_ms=start_ms,
-                            end_ms=end_ms,
-                            overlapping_with=overlapping_segment,
-                            overlap_ratio=round(overlap_ratio, 3),
-                            message="零容忍策略：直接剔除任何有重叠的片段",
-                        )
+                        current_overlap_ratio = overlap_ratio
+                        # 只要发现重叠就记录并跳出内层循环
                         break
-
-            # 如果有任何重叠，直接跳过该片段（零容忍！）
+            
             if has_overlap:
-                continue  # 直接剔除，不添加到候选列表
+                # 记录被拒绝的候选，供兜底使用
+                rejected_candidates.append({
+                    "candidate": candidate,
+                    "overlap_ratio": current_overlap_ratio,
+                    "overlapping_with": overlapping_segment,
+                    "score": float(candidate.get("score", 0.0))
+                })
+                self._logger.warning(
+                    "timeline_builder.overlap_rejected",
+                    video_id=video_id,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    overlapping_with=overlapping_segment,
+                    overlap_ratio=round(current_overlap_ratio, 3),
+                    message="零容忍策略：暂时剔除重叠片段",
+                )
+                continue  # 暂时剔除，不添加到主要候选列表
 
             # 检查精确匹配
             segment_key = (video_id, start_ms, end_ms)
@@ -689,6 +706,21 @@ class TimelineBuilder:
         selected: list[dict[str, int | float | str]] = [
             item["candidate"] for item in candidates_with_usage[:limit]
         ]
+        
+        # 🚑 紧急救援策略：如果严格去重后没有选中任何片段，尝试从拒绝列表中捞回最好的
+        if not selected and rejected_candidates:
+            # 按重叠率升序排序（优先选择重叠最少的），其次按分数降序
+            rejected_candidates.sort(key=lambda x: (x["overlap_ratio"], -x["score"]))
+            
+            best_rejected = rejected_candidates[0]
+            selected.append(best_rejected["candidate"])
+            
+            self._logger.warning(
+                "timeline_builder.relax_deduplication",
+                video_id=best_rejected["candidate"].get("source_video_id"),
+                overlap_ratio=round(best_rejected["overlap_ratio"], 3),
+                message="所有候选均因重叠被拒，放宽策略：选择重叠度最小的片段，避免 Fallback",
+            )
 
         # 记录选中的片段详细信息
         for idx, item in enumerate(candidates_with_usage[:limit]):
