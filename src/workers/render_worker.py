@@ -137,7 +137,12 @@ async def _render_mix_impl(job_id: str) -> None:
                 audio_enriched = tmp_path / f"{job_id}_with_audio.mp4"
                 _attach_audio_track(output_video, audio_path, audio_enriched)
                 output_video = audio_enriched
+
+            # 生成字幕文件并烧录到视频
             subtitle_file = _write_srt(render_lines, tmp_path / f"{job_id}.srt")
+            video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
+            _burn_subtitles(output_video, subtitle_file, video_with_subtitles)
+            output_video = video_with_subtitles
 
             # 计算对齐指标
             finished_at = datetime.utcnow()
@@ -571,6 +576,62 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -
     ]
 
     _run_ffmpeg(cmd)
+
+
+def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) -> None:
+    """将字幕烧录到视频中。
+
+    Args:
+        video_path: 输入视频文件路径
+        subtitle_path: SRT 字幕文件路径
+        target_path: 输出视频文件路径
+
+    使用 FFmpeg subtitles 滤镜将字幕渲染到视频画面上。
+    字幕样式：
+    - 字体：Arial (兼容性好)
+    - 大小：24
+    - 主颜色：白色
+    - 边框颜色：黑色
+    - 位置：底部居中
+    """
+    logger.info(
+        "render_worker.burn_subtitles",
+        video=video_path.as_posix(),
+        subtitle=subtitle_path.as_posix(),
+        target=target_path.as_posix(),
+    )
+
+    # 字幕滤镜参数
+    # force_style: 强制应用样式
+    # FontName=Arial: 使用 Arial 字体
+    # FontSize=24: 字体大小 24
+    # PrimaryColour=&HFFFFFF: 白色文字
+    # OutlineColour=&H000000: 黑色边框
+    # Outline=2: 边框宽度 2
+    # MarginV=50: 底部边距 50 像素
+
+    # 注意：Windows 路径需要转义反斜杠
+    subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", video_path.as_posix(),
+        "-vf", f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "copy",
+        target_path.as_posix(),
+    ]
+
+    _run_ffmpeg(cmd)
+
+    logger.info(
+        "render_worker.subtitles_burned",
+        output_size=target_path.stat().st_size if target_path.exists() else 0,
+        message="字幕已烧录到视频",
+    )
 
 
 class WorkerSettings(BaseWorkerSettings):

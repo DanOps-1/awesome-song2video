@@ -206,6 +206,11 @@ class TimelineBuilder:
         
         if audio_path:
             audio_duration_ms = self._get_audio_duration(audio_path)
+            self._logger.info(
+                "timeline_builder.audio_info",
+                path=str(audio_path),
+                duration_ms=audio_duration_ms
+            )
             raw_segments = await transcribe_with_timestamps(
                 audio_path, 
                 language=language, 
@@ -288,59 +293,66 @@ class TimelineBuilder:
             else:
                 end_ms = int(float(end_value) * 1000)
 
-            # 🎵 间奏填充逻辑 (Instrumental Gap Filling)
-            if cursor_ms > 0 and start_ms > cursor_ms + 500:
-                gap_start = cursor_ms
-                gap_end = start_ms
-                gap_duration = gap_end - gap_start
-                
-                self._logger.info(
-                    "timeline_builder.fill_gap_search",
-                    gap_start=gap_start,
-                    gap_end=gap_end,
-                    duration=gap_duration,
-                    message="发现间奏空隙，搜索纯音乐画面",
-                )
-                
-                # 搜索纯音乐画面，而不是使用 Fallback
-                gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
-                gap_candidates = await self._get_candidates(gap_prompt, limit=20)
-                normalized_gap = self._normalize_candidates(gap_candidates, gap_start, gap_end)
-                selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
-                
-                # 如果因为重叠等原因没有选到候选，强制使用 fallback
-                if not selected_gap:
-                    self._logger.warning(
-                        "timeline_builder.gap_fallback",
-                        gap_start=gap_start,
-                        gap_end=gap_end,
-                        message="间奏搜索无可用候选（可能因重叠被过滤），使用 Fallback",
-                    )
-                    selected_gap = [{
-                        "id": str(uuid4()),
-                        "source_video_id": self._settings.fallback_video_id,
-                        "start_time_ms": gap_start,
-                        "end_time_ms": gap_end,
-                        "score": 0.0,
-                    }]
+            # 🎵 间隙处理策略 (Gap Handling Strategy)
+            # 目标：确保视频时间线连续，无黑屏，无跳跃
+            if cursor_ms > 0:  # 只有非第一句才需要处理间隙（第一句前面是0）
+                if start_ms > cursor_ms:
+                    gap = start_ms - cursor_ms
+                    
+                    # 策略 1: 大间隙 -> 插入间奏片段
+                    if gap > 2000:
+                        self._logger.info(
+                            "timeline_builder.fill_large_gap",
+                            gap_start=cursor_ms,
+                            gap_end=start_ms,
+                            duration=gap,
+                            message="发现大间隙，插入纯音乐画面",
+                        )
+                        
+                        # 搜索纯音乐画面
+                        gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                        gap_candidates = await self._get_candidates(gap_prompt, limit=20)
+                        normalized_gap = self._normalize_candidates(gap_candidates, cursor_ms, start_ms)
+                        selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
+                        
+                        # 兜底
+                        if not selected_gap:
+                            selected_gap = [{
+                                "id": str(uuid4()),
+                                "source_video_id": self._settings.fallback_video_id,
+                                "start_time_ms": cursor_ms,
+                                "end_time_ms": start_ms,
+                                "score": 0.0,
+                            }]
 
-                # 标记已使用
-                for candidate in selected_gap:
-                    segment_key = (
-                        str(candidate.get("source_video_id")),
-                        int(candidate.get("start_time_ms", 0)),
-                        int(candidate.get("end_time_ms", 0)),
-                    )
-                    self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+                        # 标记已使用
+                        for candidate in selected_gap:
+                            segment_key = (
+                                str(candidate.get("source_video_id")),
+                                int(candidate.get("start_time_ms", 0)),
+                                int(candidate.get("end_time_ms", 0)),
+                            )
+                            self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
 
-                timeline.lines.append(
-                    TimelineLine(
-                        text="(Instrumental)",
-                        start_ms=gap_start,
-                        end_ms=gap_end,
-                        candidates=selected_gap
-                    )
-                )
+                        timeline.lines.append(
+                            TimelineLine(
+                                text="(Instrumental)",
+                                start_ms=cursor_ms,
+                                end_ms=start_ms,
+                                candidates=selected_gap
+                            )
+                        )
+                    
+                    # 策略 2: 小间隙 -> 吸收（向前延伸当前片段）
+                    else:
+                        self._logger.info(
+                            "timeline_builder.absorb_small_gap",
+                            original_start=start_ms,
+                            new_start=cursor_ms,
+                            gap_absorbed=gap,
+                            message="吸收微小间隙，向前延伸当前片段",
+                        )
+                        start_ms = cursor_ms  # 修改当前片段的开始时间
 
             # 处理当前片段
             if seg.get("is_non_lyric", False):
@@ -376,15 +388,24 @@ class TimelineBuilder:
             cursor_ms = max(cursor_ms, end_ms)
             
         # 🎵 尾部填充逻辑 (Tail Gap Filling)
+        self._logger.info(
+            "timeline_builder.check_tail_gap",
+            audio_duration_ms=audio_duration_ms,
+            cursor_ms=cursor_ms,
+            gap=audio_duration_ms - cursor_ms,
+            threshold=1000,
+            should_fill=audio_duration_ms > cursor_ms + 1000
+        )
+        
         if audio_duration_ms > cursor_ms + 1000:
             gap_start = cursor_ms
             gap_end = audio_duration_ms
             self._logger.info(
-                "timeline_builder.fill_tail_gap_search",
+                "timeline_builder.fill_tail_gap",
                 gap_start=gap_start,
                 gap_end=gap_end,
                 duration=gap_end - gap_start,
-                message="填充尾部空隙，搜索 Outro 画面",
+                message="填充尾部空隙",
             )
             
             outro_prompt = "ending music video, fade out, cinematic, atmospheric"
@@ -638,102 +659,91 @@ class TimelineBuilder:
         self, candidates: list[dict[str, int | float | str]], limit: int
     ) -> list[dict[str, int | float | str]]:
         """
-        从候选列表中选择多样化的片段，尽量避免重复使用相同的视频片段。
+        从候选列表中选择多样化的片段，严格确保每个片段只使用一次。
 
-        策略：
-        1. 优先选择未使用过的片段
-        2. 如果没有未使用的片段，允许使用次数最少的片段（避免完全无片段可用）
-        3. 按评分排序选择最佳的
-        
-        **改进策略**：
-        - 维护一个 "rejected_candidates" 列表。
-        - 如果由于严格的去重（零容忍）导致没有选出任何片段，则从 rejected 中选择重叠度最小的片段。
-        - 宁可稍微重叠，也不要 Fallback。
+        **严格策略**（按用户要求）：
+        1. 完全禁止重复使用：usage_count > 0 的片段直接剔除
+        2. 完全禁止重叠：任何重叠 > 0 的片段直接剔除
+        3. 如果没有可用片段，返回空（使用 fallback 视频）
+        4. 按评分降序排序选择最佳的未使用片段
         """
         if not candidates:
             return []
 
-        # 为每个候选片段计算使用次数和评分，并检测时间重叠
-        candidates_with_usage: list[CandidateWithUsage] = []
-        rejected_candidates: list[dict] = []  # 存储因重叠被拒绝的候选
+        # 为每个候选片段检测使用次数和时间重叠
+        valid_candidates: list[CandidateWithUsage] = []
+        rejected_count = 0
 
         for candidate in candidates:
             video_id = str(candidate.get("source_video_id", ""))
             start_ms = int(candidate.get("start_time_ms", 0))
             end_ms = int(candidate.get("end_time_ms", 0))
+            segment_key = (video_id, start_ms, end_ms)
 
-            # 检查是否与已使用的片段有任何重叠（零容忍！）
+            # 策略1：完全禁止重复使用 - 检查精确匹配
+            usage_count = self._used_segments.get(segment_key, 0)
+            if usage_count > 0:
+                self._logger.info(
+                    "timeline_builder.reject_reused",
+                    video_id=video_id,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    usage_count=usage_count,
+                    message="严格去重：片段已使用过，直接剔除",
+                )
+                rejected_count += 1
+                continue
+
+            # 策略2：完全禁止重叠 - 检查与所有已使用片段的重叠
             has_overlap = False
-            overlapping_segment = None
-            current_overlap_ratio = 0.0
-            
             for used_key in self._used_segments.keys():
                 used_video_id, used_start, used_end = used_key
                 if used_video_id == video_id:
                     overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
-                    if overlap_ratio > 0:  # 任何重叠都不允许！
+                    if overlap_ratio > 0:
                         has_overlap = True
-                        overlapping_segment = used_key
-                        current_overlap_ratio = overlap_ratio
-                        # 只要发现重叠就记录并跳出内层循环
+                        self._logger.info(
+                            "timeline_builder.reject_overlap",
+                            video_id=video_id,
+                            start_ms=start_ms,
+                            end_ms=end_ms,
+                            overlapping_with=used_key,
+                            overlap_ratio=round(overlap_ratio, 3),
+                            message="严格去重：片段与已使用片段重叠，直接剔除",
+                        )
+                        rejected_count += 1
                         break
-            
+
             if has_overlap:
-                # 记录被拒绝的候选，供兜底使用
-                rejected_candidates.append({
-                    "candidate": candidate,
-                    "overlap_ratio": current_overlap_ratio,
-                    "overlapping_with": overlapping_segment,
-                    "score": float(candidate.get("score", 0.0))
-                })
-                self._logger.warning(
-                    "timeline_builder.overlap_rejected",
-                    video_id=video_id,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                    overlapping_with=overlapping_segment,
-                    overlap_ratio=round(current_overlap_ratio, 3),
-                    message="零容忍策略：暂时剔除重叠片段",
-                )
-                continue  # 暂时剔除，不添加到主要候选列表
+                continue
 
-            # 检查精确匹配
-            segment_key = (video_id, start_ms, end_ms)
-            usage_count = self._used_segments.get(segment_key, 0)
-
-            candidates_with_usage.append({
+            # 通过所有检查，加入有效候选列表
+            valid_candidates.append({
                 "candidate": candidate,
-                "usage_count": usage_count,
+                "usage_count": 0,  # 肯定是 0，因为已经过滤掉了 > 0 的
                 "score": float(candidate.get("score", 0.0)),
             })
 
-        # 排序策略：
-        # 1. 使用次数少的优先（usage_count升序）
-        # 2. 相同使用次数时，score高的优先（score降序）
-        candidates_with_usage.sort(key=lambda x: (x["usage_count"], -x["score"]))
+        # 策略4：按评分降序排序选择最佳的
+        valid_candidates.sort(key=lambda x: -x["score"])
 
         # 提取候选片段并限制数量
         selected: list[dict[str, int | float | str]] = [
-            item["candidate"] for item in candidates_with_usage[:limit]
+            item["candidate"] for item in valid_candidates[:limit]
         ]
-        
-        # 🚑 紧急救援策略：如果严格去重后没有选中任何片段，尝试从拒绝列表中捞回最好的
-        if not selected and rejected_candidates:
-            # 按重叠率升序排序（优先选择重叠最少的），其次按分数降序
-            rejected_candidates.sort(key=lambda x: (x["overlap_ratio"], -x["score"]))
-            
-            best_rejected = rejected_candidates[0]
-            selected.append(best_rejected["candidate"])
-            
+
+        # 策略3：如果没有可用片段，返回空（触发 fallback）
+        if not selected:
             self._logger.warning(
-                "timeline_builder.relax_deduplication",
-                video_id=best_rejected["candidate"].get("source_video_id"),
-                overlap_ratio=round(best_rejected["overlap_ratio"], 3),
-                message="所有候选均因重叠被拒，放宽策略：选择重叠度最小的片段，避免 Fallback",
+                "timeline_builder.no_valid_candidates",
+                total_candidates=len(candidates),
+                rejected_count=rejected_count,
+                message="严格去重：所有候选都已使用或重叠，将使用 fallback 视频",
             )
+            return []
 
         # 记录选中的片段详细信息
-        for idx, item in enumerate(candidates_with_usage[:limit]):
+        for idx, item in enumerate(valid_candidates[:limit]):
             candidate = item["candidate"]
             self._logger.info(
                 "timeline_builder.selected_clip",
@@ -743,30 +753,17 @@ class TimelineBuilder:
                 end_ms=candidate.get("end_time_ms"),
                 duration_ms=candidate.get("end_time_ms", 0) - candidate.get("start_time_ms", 0),
                 score=candidate.get("score"),
-                usage_count=item["usage_count"],
+                message="严格去重通过：未使用且无重叠",
             )
 
-        # 记录日志
-        if candidates_with_usage:
-            first_usage = candidates_with_usage[0]["usage_count"]
-            unused_count = sum(1 for item in candidates_with_usage if item["usage_count"] == 0)
-
-            if first_usage > 0:
-                self._logger.warning(
-                    "timeline_builder.reuse_segment",
-                    total_candidates=len(candidates),
-                    unused_count=unused_count,
-                    selected_usage_count=first_usage,
-                    message=f"候选不足，重复使用片段（已使用{first_usage}次）",
-                )
-            else:
-                self._logger.info(
-                    "timeline_builder.diversity_selection",
-                    total_candidates=len(candidates),
-                    unused_count=unused_count,
-                    selected_count=len(selected),
-                    message=f"从{unused_count}个未使用片段中选择了{len(selected)}个",
-                )
+        self._logger.info(
+            "timeline_builder.strict_deduplication_summary",
+            total_candidates=len(candidates),
+            valid_count=len(valid_candidates),
+            rejected_count=rejected_count,
+            selected_count=len(selected),
+            message=f"严格去重：从{len(candidates)}个候选中筛选出{len(valid_candidates)}个有效，选择了{len(selected)}个",
+        )
 
         return selected
 
