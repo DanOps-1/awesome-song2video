@@ -12,7 +12,7 @@ import whisper  # type: ignore[import-untyped]
 from src.infra.config.settings import get_settings
 
 
-WhisperResult = dict[str, str | float | int]
+WhisperResult = dict[str, str | float | int | None]
 WHISPER_MODEL = None
 
 
@@ -22,6 +22,50 @@ def _get_model() -> "whisper.Whisper":
         model_name = get_settings().whisper_model_name
         WHISPER_MODEL = whisper.load_model(model_name)
     return WHISPER_MODEL
+
+
+def _filter_segments(segments: list[dict]) -> list[dict]:
+    """过滤 Whisper 幻觉和低质量片段。"""
+    filtered = []
+    
+    # 常见幻觉词表
+    hallucination_phrases = [
+        "优优独播剧场", "YoYo Television", "独播剧场",
+        "字幕", "Copyright", "All rights reserved", 
+        "Thank you for watching", "Thanks for watching",
+        "Amara.org", "Subtitles by",
+        "未经作者授权", "禁止转载"
+    ]
+    
+    for seg in segments:
+        text = seg.get("text", "").strip()
+        no_speech_prob = seg.get("no_speech_prob", 0.0)
+        avg_logprob = seg.get("avg_logprob", 0.0)
+        
+        # 1. 检查非语音概率 (no_speech_prob)
+        if no_speech_prob > 0.6:
+            continue
+            
+        # 2. 检查平均对数概率 (avg_logprob)
+        if avg_logprob < -1.0:
+            continue
+            
+        # 3. 检查空文本
+        if not text:
+            continue
+            
+        # 4. 检查幻觉词
+        is_hallucination = False
+        for phrase in hallucination_phrases:
+            if phrase.lower() in text.lower():
+                is_hallucination = True
+                break
+        if is_hallucination:
+            continue
+            
+        filtered.append(seg)
+        
+    return filtered
 
 
 async def transcribe_with_timestamps(
@@ -46,7 +90,11 @@ async def transcribe_with_timestamps(
             
         result = model.transcribe(temp.as_posix(), **kwargs)
         segments_any = result.get("segments", [])
-        return cast(Sequence[WhisperResult], segments_any)
+        
+        # 应用过滤逻辑
+        clean_segments = _filter_segments(segments_any)
+        
+        return cast(Sequence[WhisperResult], clean_segments)
 
     segments = await to_thread.run_sync(_run_model)
     temp.unlink(missing_ok=True)
