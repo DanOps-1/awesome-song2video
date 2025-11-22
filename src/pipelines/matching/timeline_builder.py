@@ -145,6 +145,53 @@ class TimelineBuilder:
             self._logger.warning("ffprobe.audio_duration_failed", path=audio_path, error=str(exc))
         return 0
 
+    def _split_by_duration(self, segments: list[dict[str, Any]], max_duration: float = 12.0) -> list[dict[str, Any]]:
+        """将过长的片段按时长切分为更小的片段，以增加画面丰富度。"""
+        split_segments: list[dict[str, Any]] = []
+        for seg in segments:
+            start = float(seg.get("start", 0))
+            end = float(seg.get("end", 0))
+            duration = end - start
+            
+            if duration <= max_duration:
+                split_segments.append(seg)
+                continue
+                
+            # 计算需要切分的块数
+            num_chunks = int(duration // max_duration) + 1
+            chunk_duration = duration / num_chunks
+            
+            text = seg.get("text", "")
+            base_prompt = seg.get("search_prompt", "")
+            
+            for i in range(num_chunks):
+                chunk_start = start + (i * chunk_duration)
+                chunk_end = chunk_start + chunk_duration
+                
+                # 创建新片段，复制元数据
+                new_seg = seg.copy()
+                new_seg["start"] = chunk_start
+                new_seg["end"] = chunk_end
+                
+                # 如果有搜索提示词，添加变化以增加多样性
+                if base_prompt:
+                    new_seg["search_prompt"] = f"{base_prompt}, scene {i+1}"
+                
+                # 对于长文本（如 Credits），后续片段可以不再显示文本，或者保留
+                # 这里为了简单，保留文本，但画面会变
+                
+                split_segments.append(new_seg)
+                
+            self._logger.info(
+                "timeline_builder.split_long_segment",
+                original_text=text[:20],
+                original_duration=round(duration, 2),
+                chunks=num_chunks,
+                message="长片段已切分",
+            )
+            
+        return split_segments
+
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
@@ -166,9 +213,6 @@ class TimelineBuilder:
 
         segments = self._explode_segments(segments)
         
-        # 按开始时间排序，确保时间线连续性
-        segments.sort(key=lambda x: float(x.get("start", 0)))
-
         # 标记非歌词内容（作词、作曲等 credits）
         # 策略更新：
         # 1. 短的 credits (< 10s) -> 标记为 non-lyric，使用 fallback
@@ -210,6 +254,13 @@ class TimelineBuilder:
                 lyric_count=len(segments) - non_lyric_count,
                 message=f"发现 {non_lyric_count} 个短非歌词片段",
             )
+            
+        # 在排序前进行时长切分
+        # 这会将 30s 的 Intro 切分为 3 个 10s 的片段，每个都会进行独立的视频搜索
+        segments = self._split_by_duration(segments, max_duration=12.0)
+        
+        # 按开始时间排序，确保时间线连续性
+        segments.sort(key=lambda x: float(x.get("start", 0)))
 
         timeline = TimelineResult()
         cursor_ms = 0
