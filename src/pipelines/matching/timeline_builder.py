@@ -119,11 +119,40 @@ class TimelineBuilder:
 
         return False
 
+    def _get_audio_duration(self, audio_path: Path) -> int:
+        """使用 ffprobe 获取音频文件时长（毫秒）。"""
+        import subprocess
+
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            audio_path.as_posix(),
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return int(float(result.stdout.strip()) * 1000)
+        except Exception as exc:
+            self._logger.warning("ffprobe.audio_duration_failed", path=audio_path, error=str(exc))
+        return 0
+
     async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
         segments: list[dict[str, Any]] = []
+        audio_duration_ms = 0
+        
         if audio_path:
+            audio_duration_ms = self._get_audio_duration(audio_path)
             raw_segments = await transcribe_with_timestamps(audio_path)
             segments = [dict(segment) for segment in raw_segments]
         elif lyrics_text:
@@ -136,6 +165,9 @@ class TimelineBuilder:
             raise ValueError("必须提供音频或歌词")
 
         segments = self._explode_segments(segments)
+        
+        # 按开始时间排序，确保时间线连续性
+        segments.sort(key=lambda x: float(x.get("start", 0)))
 
         # 标记非歌词内容（作词、作曲等 credits）
         # 不删除这些片段，而是标记它们，后续使用 fallback 视频填充
@@ -163,6 +195,8 @@ class TimelineBuilder:
             )
 
         timeline = TimelineResult()
+        cursor_ms = 0
+
         for seg in segments:
             raw_text = str(seg.get("text", ""))
             text = raw_text.strip().strip("'\"")
@@ -175,6 +209,38 @@ class TimelineBuilder:
                 end_ms = start_ms + 1000
             else:
                 end_ms = int(float(end_value) * 1000)
+
+            # 🎵 间奏填充逻辑 (Instrumental Gap Filling)
+            # 如果当前片段开始时间晚于上一片段结束时间（且差距 > 500ms），说明中间有间奏
+            # 需要插入一个使用 fallback 视频的 Gap Line，以保持视频与音频时长对齐
+            if cursor_ms > 0 and start_ms > cursor_ms + 500:
+                gap_start = cursor_ms
+                gap_end = start_ms
+                gap_duration = gap_end - gap_start
+                
+                self._logger.info(
+                    "timeline_builder.fill_gap",
+                    gap_start=gap_start,
+                    gap_end=gap_end,
+                    duration=gap_duration,
+                    message="发现间奏空隙，插入 Fallback 视频填充",
+                )
+                
+                # 插入 Gap Line
+                timeline.lines.append(
+                    TimelineLine(
+                        text="(Instrumental)",
+                        start_ms=gap_start,
+                        end_ms=gap_end,
+                        candidates=[{
+                            "id": str(uuid4()),
+                            "source_video_id": self._settings.fallback_video_id,
+                            "start_time_ms": gap_start,
+                            "end_time_ms": gap_end,
+                            "score": 0.0,
+                        }]
+                    )
+                )
 
             # 如果是非歌词内容，直接使用 fallback 视频，不搜索候选
             if seg.get("is_non_lyric", False):
@@ -212,6 +278,35 @@ class TimelineBuilder:
                     candidates=selected_candidates,
                 )
             )
+            cursor_ms = max(cursor_ms, end_ms)
+            
+        # 🎵 尾部填充逻辑 (Tail Gap Filling)
+        # 如果音频比视频长，填充尾部空隙，防止音乐未播完视频就结束
+        if audio_duration_ms > cursor_ms + 1000:
+            gap_start = cursor_ms
+            gap_end = audio_duration_ms
+            self._logger.info(
+                "timeline_builder.fill_tail_gap",
+                gap_start=gap_start,
+                gap_end=gap_end,
+                duration=gap_end - gap_start,
+                message="填充尾部空隙",
+            )
+            timeline.lines.append(
+                TimelineLine(
+                    text="(Outro)",
+                    start_ms=gap_start,
+                    end_ms=gap_end,
+                    candidates=[{
+                        "id": str(uuid4()),
+                        "source_video_id": self._settings.fallback_video_id,
+                        "start_time_ms": gap_start,
+                        "end_time_ms": gap_end,
+                        "score": 0.0,
+                    }]
+                )
+            )
+
         return timeline
 
     def _normalize_candidates(
