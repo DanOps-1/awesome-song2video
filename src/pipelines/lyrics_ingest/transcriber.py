@@ -82,25 +82,28 @@ def _detect_vocal_start(audio: AudioSegment, window_sec: float = 0.5, energy_per
 
 def _filter_segments(segments: list[dict]) -> list[dict]:
     """过滤 Whisper 幻觉和低质量片段。"""
+    settings = get_settings()
     filtered = []
-    
+
     # 常见幻觉词表
     hallucination_phrases = [
         "优优独播剧场", "YoYo Television", "独播剧场",
-        "字幕", "Copyright", "All rights reserved", 
+        "字幕", "Copyright", "All rights reserved",
         "Thank you for watching", "Thanks for watching",
         "Amara.org", "Subtitles by",
         "未经作者授权", "禁止转载"
     ]
-    
+
     for seg in segments:
         text = seg.get("text", "").strip()
         no_speech_prob = seg.get("no_speech_prob", 0.0)
         avg_logprob = seg.get("avg_logprob", 0.0)
-        
+
         # 1. 检查非语音概率 (no_speech_prob)
-        # 提高阈值以保留更多人声片段（特别是背景音乐较响的情况）
-        if no_speech_prob > 0.9:
+        # 使用可配置的阈值
+        # 阈值越低：过滤越严格，片段越多（但可能在长前奏歌曲中丢失开头人声）
+        # 阈值越高：过滤越宽松，片段越少（但保留更多内容，包括长片段）
+        if no_speech_prob > settings.whisper_no_speech_threshold:
             continue
             
         # 2. 检查平均对数概率 (avg_logprob)
