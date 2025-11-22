@@ -486,13 +486,21 @@ class TimelineBuilder:
             clip_start = api_middle - (lyric_duration // 2)
             clip_end = clip_start + lyric_duration
 
-            # 确保不会超出原始片段范围
+            # 🔧 修复：允许超出API片段边界，由 video_fetcher 自动处理循环/裁剪
+            #
+            # 原问题：当API返回的片段短于歌词时长时，边界检查会将选择截断到API长度
+            # 例如：歌词需要8s，API只有5s，原逻辑会将选择截断为5s，导致时长不足
+            #
+            # 新逻辑：保持完整的歌词时长需求，让 video_fetcher 处理边界情况
+            # - 如果超出视频末尾，video_fetcher 会自动使用循环模式 (_cut_clip_with_loop)
+            # - 如果起始位置为负，调整到从视频开头开始
             if clip_start < api_start:
+                # 起始位置提前：从API开头开始，保持歌词时长
                 clip_start = api_start
-                clip_end = min(api_start + lyric_duration, api_end)
-            elif clip_end > api_end:
-                clip_end = api_end
-                clip_start = max(api_end - lyric_duration, api_start)
+                clip_end = clip_start + lyric_duration
+                # 不再限制 clip_end，允许超出 api_end
+            # 不处理 clip_end > api_end 的情况，让它自然超出
+            # video_fetcher 会检测到并使用循环模式
 
             return {
                 "id": str(uuid4()),
