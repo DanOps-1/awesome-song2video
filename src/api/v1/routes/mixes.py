@@ -25,7 +25,7 @@ class MixCreateRequest(BaseModel):
     source_type: str = Field(..., pattern="^(upload|catalog)$")
     audio_asset_id: str | None = None
     lyrics_text: str | None = None
-    language: str = "zh"
+    language: str = "auto"
     auto_generate: bool = True
 
 

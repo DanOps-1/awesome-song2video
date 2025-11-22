@@ -18,6 +18,20 @@ repo = SongMixRepository()
 builder = TimelineBuilder()
 
 
+# 各语言防幻觉 Prompt 配置
+LYRIC_PROMPTS = {
+    "zh": "这是一首中文歌曲的歌词，请忽略背景音乐和非人声部分。",
+    "en": "This is song lyrics, please ignore background music.",
+    "ja": "これは歌詞です。背景音楽は無視してください。",
+    "ko": "이것은 노래 가사입니다. 배경 음악은 무시해 주세요.",
+    "es": "Esta es la letra de una canción, por favor ignora la música de fondo.",
+    "fr": "Ce sont des paroles de chansons, veuillez ignorer la musique de fond.",
+    "de": "Ce sont des paroles de chansons, veuillez ignorer la musique de fond.",  # Copy paste error in thought, correcting to German
+}
+# German prompt correction: "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik."
+LYRIC_PROMPTS["de"] = "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik."
+
+
 async def build_timeline(ctx: dict | None, mix_id: str) -> None:
     logger.info("timeline_worker.started", mix_id=mix_id)
     mix = await repo.get_request(mix_id)
@@ -26,18 +40,22 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
         return
     audio_path = Path(mix.audio_asset_id) if mix.audio_asset_id else None
     
-    # 自动构建 Prompt 以避免 Whisper 幻觉
-    language = getattr(mix, "language", "zh")
+    # 处理语言和 Prompt
+    # 默认为 "auto" -> 让 Whisper 自动检测
+    # 如果指定了语言，则使用对应语言的 Prompt 来减少幻觉
+    req_language = getattr(mix, "language", "auto")
+    
+    whisper_language = None
     prompt = None
-    if language == "zh":
-        prompt = "这是一首中文歌曲的歌词，请忽略背景音乐和非人声部分。"
-    elif language == "en":
-        prompt = "This is song lyrics, please ignore background music."
-        
+    
+    if req_language and req_language != "auto":
+        whisper_language = req_language
+        prompt = LYRIC_PROMPTS.get(req_language)
+    
     result = await builder.build(
         audio_path=audio_path, 
         lyrics_text=mix.lyrics_text,
-        language=language,
+        language=whisper_language,
         prompt=prompt
     )
 
