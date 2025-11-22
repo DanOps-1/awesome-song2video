@@ -170,20 +170,37 @@ class TimelineBuilder:
         segments.sort(key=lambda x: float(x.get("start", 0)))
 
         # 标记非歌词内容（作词、作曲等 credits）
-        # 不删除这些片段，而是标记它们，后续使用 fallback 视频填充
+        # 策略更新：
+        # 1. 短的 credits (< 10s) -> 标记为 non-lyric，使用 fallback
+        # 2. 长的 credits (>= 10s) -> 视为 Intro/Interlude，改写 text 进行搜索
         non_lyric_count = 0
         for seg in segments:
             text = str(seg.get("text", "")).strip()
+            start = float(seg.get("start", 0))
+            end = float(seg.get("end", 0))
+            duration_s = end - start
+
             if self._is_non_lyric_text(text):
-                seg["is_non_lyric"] = True  # 标记为非歌词
-                non_lyric_count += 1
-                self._logger.info(
-                    "timeline_builder.mark_non_lyric",
-                    text=text,
-                    start_ms=int(float(seg.get("start", 0)) * 1000),
-                    end_ms=int(float(seg.get("end", 0)) * 1000),
-                    message="标记为非歌词内容，将使用 fallback 视频填充",
-                )
+                if duration_s < 10.0:
+                    seg["is_non_lyric"] = True
+                    non_lyric_count += 1
+                    self._logger.info(
+                        "timeline_builder.mark_non_lyric",
+                        text=text,
+                        duration_s=round(duration_s, 2),
+                        message="短 Credit 信息，标记为非歌词 (Fallback)",
+                    )
+                else:
+                    # 长片段，即使包含 Credit 也不应该用黑屏 Fallback
+                    # 改写为通用 Intro Prompt
+                    seg["is_non_lyric"] = False
+                    seg["search_prompt"] = "cinematic music video intro, atmospheric, slow motion"
+                    self._logger.info(
+                        "timeline_builder.convert_long_credit",
+                        text=text,
+                        duration_s=round(duration_s, 2),
+                        message="长 Credit 片段，转换为 Intro 搜索",
+                    )
 
         if non_lyric_count > 0:
             self._logger.info(
@@ -191,7 +208,7 @@ class TimelineBuilder:
                 total_count=len(segments),
                 non_lyric_count=non_lyric_count,
                 lyric_count=len(segments) - non_lyric_count,
-                message=f"发现 {non_lyric_count} 个非歌词片段，将使用 fallback 视频",
+                message=f"发现 {non_lyric_count} 个短非歌词片段",
             )
 
         timeline = TimelineResult()
@@ -211,50 +228,67 @@ class TimelineBuilder:
                 end_ms = int(float(end_value) * 1000)
 
             # 🎵 间奏填充逻辑 (Instrumental Gap Filling)
-            # 如果当前片段开始时间晚于上一片段结束时间（且差距 > 500ms），说明中间有间奏
-            # 需要插入一个使用 fallback 视频的 Gap Line，以保持视频与音频时长对齐
             if cursor_ms > 0 and start_ms > cursor_ms + 500:
                 gap_start = cursor_ms
                 gap_end = start_ms
                 gap_duration = gap_end - gap_start
                 
                 self._logger.info(
-                    "timeline_builder.fill_gap",
+                    "timeline_builder.fill_gap_search",
                     gap_start=gap_start,
                     gap_end=gap_end,
                     duration=gap_duration,
-                    message="发现间奏空隙，插入 Fallback 视频填充",
+                    message="发现间奏空隙，搜索纯音乐画面",
                 )
                 
-                # 插入 Gap Line
+                # 搜索纯音乐画面，而不是使用 Fallback
+                gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                gap_candidates = await self._get_candidates(gap_prompt, limit=20)
+                normalized_gap = self._normalize_candidates(gap_candidates, gap_start, gap_end)
+                selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
+                
+                # 如果因为重叠等原因没有选到候选，强制使用 fallback
+                if not selected_gap:
+                    self._logger.warning(
+                        "timeline_builder.gap_fallback",
+                        gap_start=gap_start,
+                        gap_end=gap_end,
+                        message="间奏搜索无可用候选（可能因重叠被过滤），使用 Fallback",
+                    )
+                    selected_gap = [{
+                        "id": str(uuid4()),
+                        "source_video_id": self._settings.fallback_video_id,
+                        "start_time_ms": gap_start,
+                        "end_time_ms": gap_end,
+                        "score": 0.0,
+                    }]
+
+                # 标记已使用
+                for candidate in selected_gap:
+                    segment_key = (
+                        str(candidate.get("source_video_id")),
+                        int(candidate.get("start_time_ms", 0)),
+                        int(candidate.get("end_time_ms", 0)),
+                    )
+                    self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+
                 timeline.lines.append(
                     TimelineLine(
                         text="(Instrumental)",
                         start_ms=gap_start,
                         end_ms=gap_end,
-                        candidates=[{
-                            "id": str(uuid4()),
-                            "source_video_id": self._settings.fallback_video_id,
-                            "start_time_ms": gap_start,
-                            "end_time_ms": gap_end,
-                            "score": 0.0,
-                        }]
+                        candidates=selected_gap
                     )
                 )
 
-            # 如果是非歌词内容，直接使用 fallback 视频，不搜索候选
+            # 处理当前片段
             if seg.get("is_non_lyric", False):
-                self._logger.info(
-                    "timeline_builder.use_fallback_for_non_lyric",
-                    text=text,
-                    start_ms=start_ms,
-                    end_ms=end_ms,
-                )
-                # 返回空候选列表，_normalize_candidates 会自动使用 fallback
+                # 短 Credit -> Fallback
                 candidates = []
             else:
-                # 获取更多候选片段以支持去重选择（增加到20个以提供更多去重空间）
-                candidates = await self._get_candidates(text, limit=20)
+                # 优先使用 search_prompt (针对 Long Credit/Intro)
+                search_query = seg.get("search_prompt", text)
+                candidates = await self._get_candidates(search_query, limit=20)
 
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
 
@@ -281,29 +315,44 @@ class TimelineBuilder:
             cursor_ms = max(cursor_ms, end_ms)
             
         # 🎵 尾部填充逻辑 (Tail Gap Filling)
-        # 如果音频比视频长，填充尾部空隙，防止音乐未播完视频就结束
         if audio_duration_ms > cursor_ms + 1000:
             gap_start = cursor_ms
             gap_end = audio_duration_ms
             self._logger.info(
-                "timeline_builder.fill_tail_gap",
+                "timeline_builder.fill_tail_gap_search",
                 gap_start=gap_start,
                 gap_end=gap_end,
                 duration=gap_end - gap_start,
-                message="填充尾部空隙",
+                message="填充尾部空隙，搜索 Outro 画面",
             )
+            
+            outro_prompt = "ending music video, fade out, cinematic, atmospheric"
+            outro_candidates = await self._get_candidates(outro_prompt, limit=20)
+            normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
+            selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
+            
+            # 如果因为重叠等原因没有选到候选，强制使用 fallback
+            if not selected_outro:
+                self._logger.warning(
+                    "timeline_builder.outro_fallback",
+                    gap_start=gap_start,
+                    gap_end=gap_end,
+                    message="Outro 搜索无可用候选，使用 Fallback",
+                )
+                selected_outro = [{
+                    "id": str(uuid4()),
+                    "source_video_id": self._settings.fallback_video_id,
+                    "start_time_ms": gap_start,
+                    "end_time_ms": gap_end,
+                    "score": 0.0,
+                }]
+
             timeline.lines.append(
                 TimelineLine(
                     text="(Outro)",
                     start_ms=gap_start,
                     end_ms=gap_end,
-                    candidates=[{
-                        "id": str(uuid4()),
-                        "source_video_id": self._settings.fallback_video_id,
-                        "start_time_ms": gap_start,
-                        "end_time_ms": gap_end,
-                        "score": 0.0,
-                    }]
+                    candidates=selected_outro
                 )
             )
 
