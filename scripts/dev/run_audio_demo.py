@@ -88,11 +88,11 @@ async def run_demo() -> dict[str, Any]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://demo.local") as client:
         mix_payload = {
-            "song_title": "Tom English Demo",
-            "artist": "Demo Singer",
+            "song_title": "Jiang Nan Demo",
+            "artist": "JJ Lin",
             "source_type": "upload",
             "audio_asset_id": audio_path.as_posix(),
-            "language": "en",
+            "language": "zh",
             "auto_generate": True,
         }
         resp = await client.post("/api/v1/mixes", json=mix_payload)
