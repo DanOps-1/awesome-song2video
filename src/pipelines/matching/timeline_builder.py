@@ -192,7 +192,13 @@ class TimelineBuilder:
             
         return split_segments
 
-    async def build(self, audio_path: Path | None, lyrics_text: Optional[str]) -> TimelineResult:
+    async def build(
+        self, 
+        audio_path: Path | None, 
+        lyrics_text: Optional[str],
+        language: str | None = None,
+        prompt: str | None = None
+    ) -> TimelineResult:
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
         segments: list[dict[str, Any]] = []
@@ -200,7 +206,11 @@ class TimelineBuilder:
         
         if audio_path:
             audio_duration_ms = self._get_audio_duration(audio_path)
-            raw_segments = await transcribe_with_timestamps(audio_path)
+            raw_segments = await transcribe_with_timestamps(
+                audio_path, 
+                language=language, 
+                prompt=prompt
+            )
             segments = [dict(segment) for segment in raw_segments]
         elif lyrics_text:
             for idx, line in enumerate(lyrics_text.splitlines()):

@@ -25,7 +25,21 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
         logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
         return
     audio_path = Path(mix.audio_asset_id) if mix.audio_asset_id else None
-    result = await builder.build(audio_path=audio_path, lyrics_text=mix.lyrics_text)
+    
+    # 自动构建 Prompt 以避免 Whisper 幻觉
+    language = getattr(mix, "language", "zh")
+    prompt = None
+    if language == "zh":
+        prompt = "这是一首中文歌曲的歌词，请忽略背景音乐和非人声部分。"
+    elif language == "en":
+        prompt = "This is song lyrics, please ignore background music."
+        
+    result = await builder.build(
+        audio_path=audio_path, 
+        lyrics_text=mix.lyrics_text,
+        language=language,
+        prompt=prompt
+    )
 
     lines: list[LyricLine] = []
     candidates: list[VideoSegmentMatch] = []

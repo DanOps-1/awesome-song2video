@@ -24,7 +24,11 @@ def _get_model() -> "whisper.Whisper":
     return WHISPER_MODEL
 
 
-async def transcribe_with_timestamps(audio_path: Path) -> Sequence[WhisperResult]:
+async def transcribe_with_timestamps(
+    audio_path: Path,
+    language: str | None = None,
+    prompt: str | None = None,
+) -> Sequence[WhisperResult]:
     """使用 Whisper large-v3 模型输出句级时间戳。"""
 
     audio = AudioSegment.from_file(audio_path)
@@ -33,7 +37,14 @@ async def transcribe_with_timestamps(audio_path: Path) -> Sequence[WhisperResult
 
     def _run_model() -> Sequence[WhisperResult]:
         model = _get_model()
-        result = model.transcribe(temp.as_posix(), word_timestamps=False)
+        # 构建参数
+        kwargs = {"word_timestamps": False}
+        if language:
+            kwargs["language"] = language
+        if prompt:
+            kwargs["initial_prompt"] = prompt
+            
+        result = model.transcribe(temp.as_posix(), **kwargs)
         segments_any = result.get("segments", [])
         return cast(Sequence[WhisperResult], segments_any)
 
