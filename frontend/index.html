@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Song2Video</title>
+  </head>
+  <body>
+    <script>
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        var container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.width = '100%';
+        container.style.height = '100%';
+        container.style.backgroundColor = 'white';
+        container.style.color = 'red';
+        container.style.zIndex = '9999';
+        container.style.padding = '20px';
+        container.style.overflow = 'auto';
+        container.innerHTML = '<h1>💥 启动报错 (Startup Error)</h1>' +
+          '<h3>' + msg + '</h3>' +
+          '<p><b>File:</b> ' + url + ':' + lineNo + '</p>' +
+          '<pre style="background:#eee;padding:10px;border-radius:5px">' + (error ? error.stack : 'No stack trace') + '</pre>';
+        document.body.appendChild(container);
+        return false;
+      };
+      // Capture unhandled promise rejections (e.g. failed imports)
+      window.onunhandledrejection = function(event) {
+        window.onerror('Unhandled Promise Rejection: ' + event.reason, '', 0, 0, event.reason);
+      };
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
