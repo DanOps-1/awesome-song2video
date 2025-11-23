@@ -135,7 +135,7 @@ async def _render_mix_impl(job_id: str) -> None:
             audio_path = _resolve_audio_path(mix)
             if audio_path:
                 audio_enriched = tmp_path / f"{job_id}_with_audio.mp4"
-                _attach_audio_track(output_video, audio_path, audio_enriched)
+                _attach_audio_track(output_video, audio_path, audio_enriched, render_lines)
                 output_video = audio_enriched
 
             # 生成字幕文件并烧录到视频
@@ -447,11 +447,25 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
 
 
 def _write_srt(lines: Iterable[RenderLine], path: Path) -> Path:
+    """生成 SRT 字幕文件，时间戳相对于第一个歌词开始时间（从0开始）。
+
+    因为音频会被裁剪到只包含歌词部分，所以字幕时间也需要相应调整。
+    """
     rows = []
-    for idx, line in enumerate(lines, start=1):
-        start = _format_timestamp(line.lyric_start_ms)
-        end = _format_timestamp(line.lyric_end_ms)
+    lines_list = list(lines)
+    if not lines_list:
+        path.write_text("", encoding="utf-8")
+        return path
+
+    # 获取第一个歌词的开始时间作为基准
+    offset_ms = lines_list[0].lyric_start_ms
+
+    for idx, line in enumerate(lines_list, start=1):
+        # 减去偏移量，让字幕从 0 开始
+        start = _format_timestamp(line.lyric_start_ms - offset_ms)
+        end = _format_timestamp(line.lyric_end_ms - offset_ms)
         rows.append(f"{idx}\n{start} --> {end}\n{line.lyrics}\n\n")
+
     path.write_text("".join(rows), encoding="utf-8")
     return path
 
@@ -522,13 +536,19 @@ def _resolve_audio_path(mix: SongMixRequest | None) -> Path | None:
     return None
 
 
-def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -> None:
-    """将音频轨道附加到视频上。
+def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path, render_lines: list[RenderLine]) -> None:
+    """将音频轨道附加到视频上，并裁剪音频以匹配歌词时间轴。
 
-    注意：
-    - 使用 -shortest 参数，以较短的流为准
-    - 如果视频和音频时长不匹配，会记录警告但正常处理
-    - 根本解决方案是在上游过滤非歌词内容和检测时长差异
+    关键修复：
+    - 视频片段对应的是歌词的时间范围（例如从 0.779s 开始）
+    - 原始音频是完整的（从 0s 开始）
+    - 需要裁剪音频，只保留歌词对应的时间段，这样音频和视频的时间轴才能对齐
+
+    Args:
+        video_path: 拼接好的视频文件路径
+        audio_path: 原始音频文件路径
+        target_path: 输出文件路径
+        render_lines: 渲染行列表，包含歌词时间信息
     """
     import subprocess
 
@@ -540,32 +560,51 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path) -
         )
         return float(result.stdout.strip()) if result.returncode == 0 else 0.0
 
+    # 获取歌词的起止时间
+    if not render_lines:
+        logger.warning("render_worker.no_render_lines", message="没有渲染行，无法裁剪音频")
+        # 回退到不裁剪的方式
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", video_path.as_posix(),
+            "-i", audio_path.as_posix(),
+            "-c:v", "copy", "-c:a", "aac",
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-shortest",
+            target_path.as_posix(),
+        ]
+        _run_ffmpeg(cmd)
+        return
+
+    first_lyric_start_ms = render_lines[0].lyric_start_ms
+    last_lyric_end_ms = render_lines[-1].lyric_end_ms
+
+    # 转换为秒
+    start_sec = first_lyric_start_ms / 1000.0
+    duration_sec = (last_lyric_end_ms - first_lyric_start_ms) / 1000.0
+
     video_duration = get_duration(video_path)
     audio_duration = get_duration(audio_path)
 
-    diff = audio_duration - video_duration
     logger.info(
-        "render_worker.attach_audio",
+        "render_worker.attach_audio_with_trim",
         video_duration=round(video_duration, 2),
         audio_duration=round(audio_duration, 2),
-        diff=round(diff, 2),
+        audio_trim_start=round(start_sec, 3),
+        audio_trim_duration=round(duration_sec, 3),
+        first_lyric_start_ms=first_lyric_start_ms,
+        last_lyric_end_ms=last_lyric_end_ms,
     )
 
-    # 如果时长差异显著，记录警告
-    if abs(diff) > 5.0:
-        logger.warning(
-            "render_worker.duration_mismatch",
-            video_duration=round(video_duration, 2),
-            audio_duration=round(audio_duration, 2),
-            diff=round(diff, 2),
-            message=f"视频和音频时长差异较大: {diff:.1f}秒",
-        )
-
-    # 直接合并音频和视频，使用 -shortest 以较短的流为准
+    # 裁剪音频并合并
+    # -ss: 起始时间
+    # -t: 持续时间
     cmd = [
         "ffmpeg",
         "-y",
         "-i", video_path.as_posix(),
+        "-ss", str(start_sec),  # 从歌词开始位置裁剪音频
+        "-t", str(duration_sec),  # 裁剪时长
         "-i", audio_path.as_posix(),
         "-c:v", "copy",
         "-c:a", "aac",
