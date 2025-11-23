@@ -171,7 +171,7 @@ async def transcribe_with_timestamps(
     def _run_model() -> Sequence[WhisperResult]:
         model = _get_model()
         # 构建参数
-        kwargs = {"word_timestamps": False}
+        kwargs = {"word_timestamps": True}  # 启用词级时间戳以获得更细粒度的片段
         if language:
             kwargs["language"] = language
         if prompt:

@@ -50,7 +50,7 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
     
     if req_language and req_language != "auto":
         whisper_language = req_language
-        prompt = LYRIC_PROMPTS.get(req_language)
+        # prompt = LYRIC_PROMPTS.get(req_language)  # 注释掉以获得更多细粒度片段
     
     result = await builder.build(
         audio_path=audio_path, 
