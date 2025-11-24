@@ -72,11 +72,12 @@
 - **FR-001**：渲染 Worker 必须在 `_extract_clips` 阶段按配置的 `render_clip_concurrency` 并发数，将每个 `RenderLine` 转换为独立的异步裁剪任务，且默认值需在配置文件中可修改（默认 4）。
 - **FR-002**：系统必须为每个裁剪任务实现统一的重试策略（至少 2 次）与指数退避，且在超过阈值后自动切换到本地视频文件或标记缺失。
 - **FR-003**：worker 必须维护任务级调度队列，保证同一渲染任务内的所有裁剪都被消费；当某任务失败时需释放并发配额继续调度下一条。
-- **FR-004**：系统必须在结构化日志中输出 `twelvelabs.video_clip` 并新增字段 `clip_task_id`、`clip_status`、`parallel_slot`，用于排查并行行为，同时带上 `trace_id`。
-- **FR-005**：渲染任务完成时必须持久化裁剪阶段的统计数据（平均下载耗时、失败次数、峰值并发）到 `RenderJob.metrics.render.clip_stats`，供后续分析。
+- **FR-004**：系统必须在结构化日志中输出 `twelvelabs.video_clip` 并新增字段 `clip_task_id`、`clip_status`、`parallel_slot`、`fallback_reason`，用于排查并行/回退行为，同时带上 `trace_id`。
+- **FR-005**：渲染任务完成时必须持久化裁剪阶段的统计数据（平均下载耗时、失败次数、峰值并发、占位/失败计数与 `fallback_reason` 聚合）到 `RenderJob.metrics.render.clip_stats`，供后续分析。
 - **FR-006**：当 CDN/HLS 无法访问且本地文件缺失时，worker 必须在渲染结果中插入占位片段（例如静态黑屏）并在最终报告中记录缺失明细，防止输出中出现时间轴断裂。
-- **FR-007**：系统必须暴露 Prometheus 指标（进行中 clip 数、成功/失败率、平均耗时），并在渲染队列深度指标中加入裁剪阶段的等待时间，以便 SRE 监控。
+- **FR-007**：系统必须暴露 Prometheus 指标（进行中 clip 数、成功/失败率、平均耗时、占位次数），并在渲染队列深度指标中加入裁剪阶段的等待时间，以便 SRE 监控，指标需覆盖 `render_clip_inflight`、`render_clip_duration_ms`、`render_clip_failures_total`、`render_clip_placeholder_total` 并与 clip_stats 对齐。
 - **FR-008**：当并发配置或回退策略被更新时，系统需在无需重启 worker 的情况下热加载配置（通过 Redis/环境变量轮询或管理指令），确保部署不中断。
+- **FR-009**：FFmpeg 裁剪必须采用 output seeking（`-i` 后置 `-ss`）+ 重新编码（`libx264` + `aac`，`ultrafast` 或 GPU 等效），禁止 `-c copy`；单 clip 时长误差需控制在 ≤±50ms，并通过 `ffprobe` 或 `scripts/dev/test_precise_clip.py` 校验，超出阈值时必须重试或回退。
 
 ### 核心实体（如涉及数据模型）
 

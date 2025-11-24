@@ -9,7 +9,7 @@ description: "功能实施任务模板"
 **输入**：`/specs/[###-feature-name]/` 下的设计文档  
 **前置**：plan.md（必填）、spec.md（用户故事）、research.md、data-model.md、contracts/
 
-**测试说明**：除非规格文件明确要求，可选测试任务可以省略；若包含，必须在实现前编写并确保先失败后通过；同一任务若需运行 `uvicorn`/`arq`/`pytest`/`scripts/dev/seed_demo.sh` 等标准命令，须在描述中写出具体参数与期望结果。涉及媒资片段拉取、歌词分句、查询改写或片段去重的任务，需指明 HLS 截取方式、临时目录、清理与指标采集步骤（如改写触发次数/成功率、去重率与对齐偏差等）。
+**测试说明**：除非规格文件明确要求，可选测试任务可以省略；若包含，必须在实现前编写并确保先失败后通过；同一任务若需运行 `uvicorn`/`arq`/`pytest`/`scripts/dev/seed_demo.sh` 等标准命令，须在描述中写出具体参数与期望结果。涉及媒资片段拉取、歌词分句/前奏检测/音画对齐、查询改写或片段去重的任务，需指明 HLS 截取方式、临时目录、Whisper 阈值与分句策略、时间轴归零方案、FFmpeg output seeking + 重新编码与 ≤±50ms 验证（如 `ffprobe` 或 `scripts/dev/test_precise_clip.py`）、清理与指标采集步骤（含改写触发次数/成功率、去重率与对齐偏差等）。
 
 **组织方式**：任务按用户故事分组，保证任一故事可独立实现与测试。全部描述与注释须使用简体中文，并写明精确文件路径。
 
@@ -27,7 +27,7 @@ description: "功能实施任务模板"
 - **Infra**：`src/infra/persistence/`、`src/infra/messaging/`、`src/infra/observability/`。
 - **Workers**：`src/workers/timeline_worker.py`、`src/workers/render_worker.py`。
 - **Tests**：`tests/unit/`、`tests/contract/`、`tests/integration/`、`tests/golden/`。
-- **媒资/歌词**：凡触及影视素材或歌词处理，需新增任务说明片段截取策略、时间线分句实现、查询改写与片段去重策略以及相应测试位置。
+- **媒资/歌词**：凡触及影视素材或歌词处理，需在任务中写明 HLS/按需截取与临时目录、前奏检测与时间轴归零、Whisper 阈值/`word_timestamps` 分句、FFmpeg output seeking + 重新编码及误差验证、查询改写与片段去重策略，以及对应测试位置。
 - 任何与以上不同的路径/命令需在任务描述中说明原因并关联 PR。
 
 > 以下条目均为示例，请在运行 `/speckit.tasks` 时根据真实故事与规格完全替换。

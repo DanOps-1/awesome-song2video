@@ -18,17 +18,19 @@
 **语言/版本**：Python 3.11 + asyncio（结合 `anyio.to_thread`/`asyncio.TaskGroup` 管理并发），遵循异步优先准则。
 **主要依赖**：`twelvelabs` SDK（检索 + retrieve）、`structlog`（JSON 日志）、`OpenTelemetry` + Prometheus/Loki 导出、`FFmpeg` CLI（按需裁剪）、`redis-asyncio`/Arq（worker 调度）、`SQLModel` + asyncpg（持久化 render job 状态）。
 **存储**：PostgreSQL 15（`RenderJob`、metrics）、Redis 7（队列与潜在配置热加载通道），均已存在异步驱动；文件输出仍在 `artifacts/renders/`。
-**测试**：沿用 `pytest + pytest-asyncio + ruff + mypy --strict`，并为新并行调度引入单元测试（TaskGroup 行为、重试策略）与集成测试（Arq worker 级别）。
+**测试**：沿用 `pytest + pytest-asyncio + ruff + mypy --strict`，并为新并行调度引入单元测试（TaskGroup 行为、重试策略）与集成测试（Arq worker 级别）；补充 `ffprobe`/`scripts/dev/test_precise_clip.py` 校验裁剪时长误差 ≤±50ms。
 **目标平台**：Linux 服务端 Worker（Arq + Python），运行于已有渲染节点。
 **项目形态**：单体仓库（src + workers + tests），与现有目录完全一致。
 **性能目标**：clip 裁剪并行度默认 4，支持调至 6；单曲 60 段需在 20 分钟内完成，单 clip P95 < 45s，峰值并发受配置约束。
-**约束**：TwelveLabs API 速率限制（需 token bucket）、CDN 带宽、FFmpeg 进程资源、临时目录磁盘占用；必须保持每个 clip 按需截取，不得保留全量 MP4。
+**约束**：TwelveLabs API 速率限制（需 token bucket）、CDN 带宽、FFmpeg 进程资源、临时目录磁盘占用；裁剪必须使用 output seeking（`-i` 后置 `-ss`）+ 重新编码（`libx264` + `aac`，禁止 `-c copy`），单 clip 时长误差需 ≤±50ms（超出需重试或回退）；必须保持每个 clip 按需截取，不得保留全量 MP4。
 **规模/范围**：影响 `src/workers/render_worker.py`、`src/services/matching/twelvelabs_video_fetcher.py`、`src/infra/observability/*` 与相关测试，新增配置与指标；对 `RenderJob.metrics.render` 做 schema 扩展。
 **运行命令**：`arq src.workers.render_worker.WorkerSettings`（执行并行裁剪）、`arq src.workers.timeline_worker.WorkerSettings`（上下游依赖）、`uvicorn src.api.main:app --reload --port 8080`（无变更但需验证 API 不受影响）、`pytest && ruff check && mypy`（验证并行模块）、`scripts/dev/seed_demo.sh`（构造测试请求）。涉及媒资拉取的渲染流程仍通过 `twelvelabs.retrieve`+HLS，临时文件位于 `artifacts/render_tmp/`，任务结束即删除。
 
 **配置热加载方案**：采用 Redis Pub/Sub 频道 `render:config`，Worker 常驻订阅并热更新（见 research R1）。
 
 **占位片段素材**：统一使用 `media/fallback/clip_placeholder.mp4`（3 秒黑屏 + beep），必要时复制并重封装（见 research R2）。
+
+**可观测性字段与指标**：结构化日志需包含 `clip_task_id`、`clip_status`、`parallel_slot`、`fallback_reason` 与 `trace_id`；Prometheus 指标覆盖 `render_clip_inflight`、`render_clip_duration_ms`、`render_clip_failures_total`、`render_clip_placeholder_total`，并与 `RenderJob.metrics.render.clip_stats` 中的 `placeholder_tasks/failed_tasks/fallback_reason_counts` 对齐。
 
 ## 宪章符合性检查
 

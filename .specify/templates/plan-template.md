@@ -3,7 +3,7 @@
 **分支**：`[###-feature-name]` | **日期**：[DATE] | **规格**：[link]
 **输入**：基于 `/specs/[###-feature-name]/spec.md` 的功能需求文档
 
-**提示**：本模板由 `/speckit.plan` 命令生成。填写内容必须使用简体中文，并明确说明如何满足宪章提出的异步、分层、测试、可观测性、查询改写与 LLM 使用、媒资片段按需拉取、歌词细粒度分句、片段去重/语义对齐以及目录/命令一致性要求（`src/api/v1`、`src/domain/...`、`src/pipelines/...`、`src/infra/...`、`src/workers/...`、`tests/...` 以及 `uvicorn/arq/pytest/scripts/dev/seed_demo.sh` 等需逐一说明豁免与调整）。
+**提示**：本模板由 `/speckit.plan` 命令生成。填写内容必须使用简体中文，并明确说明如何满足宪章提出的异步、分层、测试、可观测性（含 render_clip_* 与 clip_stats）、查询改写与 LLM 使用、媒资片段按需拉取、歌词细粒度分句与时间轴归零（前奏检测 + Whisper 阈值/word_timestamps）、FFmpeg output seeking + 重新编码裁剪、片段去重/语义对齐以及目录/命令一致性要求（`src/api/v1`、`src/domain/...`、`src/pipelines/...`、`src/infra/...`、`src/workers/...`、`tests/...` 以及 `uvicorn/arq/pytest/scripts/dev/seed_demo.sh` 等需逐一说明豁免与调整）。
 
 ## 摘要
 
@@ -32,9 +32,10 @@
 2. 模块/类职责是否清晰、通过接口交互且无跨层耦合？
 3. 所有交付物、日志、注释与评审资料是否承诺使用中文？
 4. 测试计划是否覆盖 `pytest-asyncio`、契约/集成测试与静态检查？
-5. 是否定义结构化日志、关键指标及语义化版本影响分析？
-6. 媒资是否按需截取（非整段下载）、歌词是否细粒度分句并记录对齐指标？
-7. 仓库目录（`src/api/v1`, `src/domain/{models,services}`, `src/pipelines/{lyrics_ingest,matching,rendering}`, `src/infra/{persistence,messaging,observability}`, `src/workers/{timeline_worker,render_worker}.py`, `tests/{unit,contract,integration,golden}`）与标准命令是否被遵守或说明豁免？
+5. 是否定义结构化日志、关键指标（含 render_clip_*、clip_stats）及语义化版本影响分析？
+6. 媒资是否按需截取（非整段下载）、时间轴是否以首句人声为零点、前奏检测与字幕偏移是否有指标/日志支撑？
+7. Whisper 阈值（默认 0.8）、`word_timestamps` 与分句策略是否记录，FFmpeg 裁剪是否采用 output seeking + 重新编码并给出 ≤±50ms 的验证方案？
+8. 仓库目录（`src/api/v1`, `src/domain/{models,services}`, `src/pipelines/{lyrics_ingest,matching,rendering}`, `src/infra/{persistence,messaging,observability}`, `src/workers/{timeline_worker,render_worker}.py`, `tests/{unit,contract,integration,golden}`）与标准命令是否被遵守或说明豁免？
 
 ## 项目结构
 

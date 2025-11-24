@@ -1,17 +1,17 @@
 <!--
 Sync Impact Report
-Version change: 1.4.0 -> 1.5.0
+Version change: 1.5.0 -> 1.6.0
 Modified principles:
-- 原则五：补充对 AI 查询改写与片段去重相关指标的可观测性要求
+- 原则五：明确 clip 级并行指标、审计日志与持久化要求
 Added sections:
-- 原则六：AI 查询改写与片段多样性
+- 原则七：音频画面对齐与精确裁剪
 Removed sections:
 - 无
 Templates requiring updates:
-- ✅ .specify/templates/plan-template.md（补充查询改写/去重/片段对齐的宪章约束）
-- ✅ .specify/templates/spec-template.md（要求规格中描述查询改写与去重策略及指标）
-- ✅ .specify/templates/tasks-template.md（在任务与测试说明中覆盖查询改写与去重实现）
-- ⚠ .specify/templates/commands/*.md（当前仓库未定义命令模板，如后续新增需显式对齐本版宪章）
+- ✅ .specify/templates/plan-template.md（增加音频/字幕对齐、FFmpeg 精确裁剪与 Whisper 阈值检查）
+- ✅ .specify/templates/spec-template.md（补充前奏检测、阈值配置与裁剪精度描述）
+- ✅ .specify/templates/tasks-template.md（新增任务说明中对齐/裁剪/阈值与指标采集要求）
+- ⚠ .specify/templates/commands/（当前不存在命令模板，如后续新增需对齐本版宪章）
 Follow-up TODOs:
 - 无
 -->
@@ -42,13 +42,19 @@ Follow-up TODOs:
 
 ### 原则五：可观测、安全与版本纪律
 
-- **强制要求**：所有服务与脚本必须输出结构化日志（JSON + trace_id）、关键指标（延迟、吞吐、错误率）以及可关联的安全事件审计，并使用 OpenTelemetry（OTLP → Prometheus/Loki）+ structlog 形成统一追踪证据；混剪预览、渲染与字幕流程必须记录并对外暴露画面对齐/字幕延迟指标，以及查询改写命中率、片段去重率等核心质量指标。公共接口与 Arq/worker 作业需遵循语义化版本号，任何破坏性变更都要提前一个迭代在规范与任务文档中给出迁移策略。
-- **理由**：高质量可观测性与明确版本边界是定位异步系统问题、支撑音视频合规与调度回滚的前提，字幕与画面对齐数据也是衡量混剪输出可用性的直接证据。
+- **强制要求**：所有服务与脚本必须输出结构化日志（JSON + trace_id）、关键指标（延迟、吞吐、错误率）以及可关联的安全事件审计，并使用 OpenTelemetry（OTLP → Prometheus/Loki）+ structlog 形成统一追踪证据；混剪预览、渲染与字幕流程必须记录并对外暴露画面对齐/字幕延迟指标、render_clip_*（inflight/duration/failures/placeholder）等 clip 级指标，日志字段须包含 `clip_task_id`、`parallel_slot`、`fallback_reason`，并将 `render_jobs.metrics.render.clip_stats` 等审计结果持久化。公共接口与 Arq/worker 作业需遵循语义化版本号，任何破坏性变更都要提前一个迭代在规范与任务文档中给出迁移策略。
+- **理由**：高质量可观测性与明确版本边界是定位异步系统问题、支撑音视频合规与调度回滚的前提，字幕与画面对齐数据与 clip 审计指标也是衡量混剪输出可用性的直接证据。
 
 ### 原则六：AI 查询改写与片段多样性
 
 - **强制要求**：凡在检索链路中使用 LLM（如 DeepSeek 或同类服务）进行查询改写，必须通过配置开关控制启用状态与模型/端点选择，并在结构化日志中记录 `original_query`、`rewritten_query`、`strategy`、`attempt`、`model`、耗时与错误原因；改写失败或无候选时必须降级为原始查询 + Fallback 媒资，禁止静默失败或返回未标注的空结果。时间线构建流程必须实现基于 `(source_video_id, start_time_ms)` 的视频片段去重策略，在重复歌词场景下优先返回不同片段，并输出去重率指标与 `timeline_builder.diversity_selection` 等审计日志。
 - **理由**：AI 查询改写与片段去重直接决定检索命中率与观看体验，只有将其设计为可配置、可观测、可回退的硬约束能力，才能在模型升级、提示词（Prompt）调整或候选集变化时避免不可见回归和体验劣化。
+
+### 原则七：音频画面对齐与精确裁剪
+
+- **强制要求**：歌词时间轴必须以首句人声为零点，前奏检测（RMS 能量，≥5s 时跳过）与音频裁剪需同步更新字幕与片段时间，并在日志/指标中记录 `vocal_start_ms`、偏移补偿与 `WHISPER_NO_SPEECH_THRESHOLD`（默认 0.8）等配置；启用 Whisper `word_timestamps` 与标点拆分，保证每条歌词对应独立片段且缺失候选时有明确 fallback。
+- **强制要求**：视频裁剪必须使用 FFmpeg output seeking（`-i` 后置 `-ss`）+ 重新编码（`libx264` + `aac`，`ultrafast` 或 GPU 等效），禁止 `-c copy` 的 input seeking；每个片段时长误差需控制在 ±50ms 内，并通过 `ffprobe` 或 `scripts/dev/test_precise_clip.py` 类脚本验证，超出时必须回退或重试。
+- **理由**：毫秒级对齐是混剪可用性的基础，错误的时间基或流复制裁剪会导致字幕累计漂移；显式记录检测与配置可在阈值调整、模型升级或素材变更时快速定位问题并回滚。
 
 ## 附加约束与技术栈
 
@@ -57,13 +63,14 @@ Follow-up TODOs:
 - **配置与密钥**：采纳分层配置（本地 `.env`、CI Secret、运行时参数），严禁在仓库中存放明文密钥；所有 I/O 必须通过具备超时、重试与熔断能力的客户端封装。
 - **外部 API 与媒资安全**：TwelveLabs、MinIO/S3、对象存储及任何第三方接口都必须实现 token bucket、指数退避与 fallback 逻辑；媒资文件需以 `media/{audio,video}/{video_id}.ext` 管理并配套清晰的清理策略，禁止临时文件泄漏。
 - **目录结构与职责映射**：仓库必须保持 `src/api/v1/`、`src/domain/{models,services}/`、`src/pipelines/{lyrics_ingest,matching,rendering}/`、`src/infra/{persistence,messaging,observability}/`、`src/workers/{timeline_worker,render_worker}.py` 以及 `tests/{unit,contract,integration,golden}/` 等目录与 README、AGENTS.md 描述一致；新增模块须在相应层建模并在规格/计划中交代职责。
-- **时间线预览与对齐**：后端必须提供 JSON manifest 接口（逐句返回素材来源、起止时间、置信度），并在 `SongMixRequest.metrics.preview`/`metrics.render` 中记录平均及最大字幕延迟；任何缺失候选的歌词需明确 fallback 策略并提示人工补片。
+- **时间线预览与对齐**：后端必须提供 JSON manifest 接口（逐句返回素材来源、起止时间、置信度），时间轴需以首句人声为零点并在 `SongMixRequest.metrics.preview`/`metrics.render` 中记录平均/最大字幕延迟及 `vocal_start_ms`、`lyrics_offset_ms`；任何缺失候选的歌词需明确 fallback 策略并提示人工补片。
 - **媒资片段拉取**：所有 TwelveLabs/MinIO 视频下载必须基于 `retrieve` API 或等效 HLS 流按需截取所需时间窗，禁止无期限保存整段 MP4；临时文件需放置受管控目录并在作业结束后清理，日志必须记录目标 video_id 与片段跨度。
-- **歌词细粒度分句**：Whisper 或歌词输入在生成 manifest 前必须按换行与常见标点切分，保证每条记录对应一行歌词；如原始片段仍过长，需按字符比例重新分配时间窗以确保字幕与画面对齐。
+- **音画裁剪与验证**：FFmpeg 裁剪必须采用 output seeking（`-i` 后置 `-ss`）+ 重新编码（`libx264` + `aac`，`ultrafast` 或 GPU 等效），禁止 `-c copy`/input seeking；片段时长误差需 ≤±50ms，并可通过 `ffprobe` 或 `scripts/dev/test_precise_clip.py` 校验，日志需包含 `clip_task_id`、源视频与时间窗以便对齐审计。
+- **歌词细粒度分句**：Whisper 必须启用 `word_timestamps` 并在生成 manifest 前按换行与常见标点拆分，保持每条记录对应一行歌词；默认 `WHISPER_NO_SPEECH_THRESHOLD=0.8`（兼顾长前奏），实际阈值需在日志/配置中记录且可调；如原始片段仍过长，需按字符比例重新分配时间窗以确保字幕与画面对齐。
 - **查询改写与片段去重**：如启用 DeepSeek 等查询改写功能，必须通过 `QUERY_REWRITE_ENABLED` 或等效配置集中控制，在规格与计划中说明改写策略、最大尝试次数与降级路径，并在 `metrics.preview` 中记录改写触发次数与成功率；时间线构建需以 `_used_segments` 或等效机制追踪 `(source_video_id, start_time_ms)` 使用次数，并在日志和指标中输出片段去重率。
 - **文档与范式**：规范文档、模板与代码注释需用中文撰写并保持 ≤100 字的段落长度，以便快速复用；所有自动生成的文件需记录触发命令与时间戳。
 - **类与模块命名**：使用全拼或行业通用词汇，避免含糊缩写；模块目录须与职责一致（如 `async_services/`, `domain_models/`, `protocols/`）。
-- **标准开发命令**：日常联调必须使用 `uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy` 与 `scripts/dev/seed_demo.sh`；若需新增或替换命令，必须同步 README、模板并在 PR 中写明原因与影响。
+- **标准开发命令**：日常联调必须使用 `uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy` 与 `scripts/dev/seed_demo.sh`；如需新增对齐验证脚本（如 `scripts/dev/test_precise_clip.py`、阈值调优脚本等），必须同步 README、模板并在 PR 中写明原因与影响。
 
 ## 开发流程与质量门槛
 
@@ -77,4 +84,4 @@ Follow-up TODOs:
 - **版本策略**：宪章采用语义化版本；新增原则或重大流程调整触发 MINOR+ 版本，破坏性治理变更触发 MAJOR，措辞澄清或轻微细化记为 PATCH。版本更新需在 Sync Impact Report 中说明原因。
 - **合规审查**：每个迭代结束时，技术负责人需对照全部核心原则与附加约束执行抽查，并记录至 `docs/compliance/<迭代>.md`（若暂未创建需新建）。发现违规需在两周内补救或提交豁免申请。
 
-**Version**: 1.5.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-19
+**Version**: 1.6.0 | **Ratified**: 2025-11-11 | **Last Amended**: 2025-11-24

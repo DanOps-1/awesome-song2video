@@ -3,7 +3,7 @@
 **输入**：`/specs/001-async-render/` 下的设计文档  
 **前置**：plan.md（必填）、spec.md（用户故事）、research.md、data-model.md、contracts/
 
-**测试说明**：本特性需验证并行裁剪的吞吐、日志与指标。测试任务按故事列出，确保 `pytest` 场景可单独运行。涉及 HLS 截取与占位片段的任务均需明确 FFmpeg `-ss/-t` 用法、`artifacts/render_tmp/` 临时目录清理与指标写入方式。
+**测试说明**：本特性需验证并行裁剪的吞吐、日志与指标。测试任务按故事列出，确保 `pytest` 场景可单独运行。涉及 HLS 截取与占位片段的任务均需明确 FFmpeg output seeking（`-i` 后置 `-ss`）+ 重新编码、`artifacts/render_tmp/` 临时目录清理、占位/失败指标写入，以及通过 `ffprobe`/`scripts/dev/test_precise_clip.py` 校验裁剪误差 ≤±50ms。
 
 ## Phase 1：初始化（共享基础设施）
 
@@ -38,6 +38,7 @@
 
 - [X] T008 [P] [US1] 在 `tests/unit/workers/test_render_worker_parallel.py` 编写 TaskGroup 并发单元测试（模拟 5 个 clip，断言并发槽位与重试计数）。
 - [X] T009 [P] [US1] 在 `tests/integration/render/test_parallel_clip_pipeline.py` 模拟 50+ clip 渲染，校验 `clip_stats.peak_parallelism` 与总耗时缩短 ≥40%。
+- [X] T031 [P] [US1] 使用 `ffprobe` 或 `scripts/dev/test_precise_clip.py` 校验 output seeking + 重新编码后 10+ clip 时长误差 ≤±50ms，记录日志样例与超阈值回退/重试结果。
 
 ### 故事 1 实施任务
 
@@ -83,6 +84,7 @@
 
 - [X] T021 [P] [US3] 在 `tests/unit/workers/test_render_worker_fallback.py` 模拟 HLS 失败与本地 fallback，断言状态 `fallback-local` 与 `fallback-placeholder`。
 - [X] T022 [P] [US3] 在 `tests/integration/render/test_render_fallbacks.py` 构造多次失败场景，验证最终渲染仍完成且输出缺失摘要。
+- [X] T032 [P] [US3] 检查 `render_clip_placeholder_total` 指标与 `RenderJob.metrics.render.clip_stats` 中的 `placeholder_tasks/failed_tasks/fallback_reason_counts` 一致，结构化日志包含 `fallback_reason`、`clip_task_id`、`parallel_slot`。
 
 ### 故事 3 实施任务
 
