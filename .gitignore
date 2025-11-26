@@ -44,8 +44,23 @@ media/audio/*
 media/video/*
 !media/video/.gitkeep
 media/fallback/*
-!media/fallback/clip_placeholder.mp4
 !media/fallback/.gitkeep
+
+# 媒体文件（全局忽略）
+*.mp3
+*.mp4
+*.wav
+*.avi
+*.mkv
+*.mov
+*.webm
+*.flac
+*.m4a
+*.ogg
+
+# poc_clean 输入文件
+poc_clean/inputs/
+poc_clean/lancedb_data/
 
 # 其他工具
 node_modules/
