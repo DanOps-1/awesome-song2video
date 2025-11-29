@@ -55,7 +55,34 @@ class AppSettings(BaseSettings):
     query_rewrite_mandatory: bool = False  # 是否强制改写（第一次查询就改写，而非仅在无结果时）
     query_rewrite_max_attempts: int = 3  # 最多尝试改写次数
 
+    # 检索后端配置
+    retriever_backend: Literal["twelvelabs", "clip", "vlm"] = "twelvelabs"
+
+    # CLIP 模型配置
+    clip_model_name: str = "ViT-L-14"
+    clip_device: str | None = None  # 自动选择
+
+    # TransNetV2 镜头检测配置
+    transnet_model_path: str = "models/transnetv2"
+
+    # Qdrant 向量数据库配置
+    qdrant_path: str = "data/qdrant"
+    qdrant_collection: str = "video_shots"
+
+    # VLM 视觉语言模型配置
+    vlm_model: str = "gpt-4o"
+    vlm_endpoint: str = "https://api.openai.com/v1/chat/completions"
+    vlm_api_key: str | None = None
+
+    # 文本嵌入模型配置
+    text_embedding_model: str = "intfloat/multilingual-e5-base"
+    text_embedding_device: str | None = None  # 自动选择
+
 
 @lru_cache()
 def get_settings() -> AppSettings:
     return AppSettings()  # type: ignore[call-arg]
+
+
+# 便捷别名
+settings = get_settings()
