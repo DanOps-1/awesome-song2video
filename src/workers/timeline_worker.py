@@ -32,13 +32,36 @@ LYRIC_PROMPTS = {
 LYRIC_PROMPTS["de"] = "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik."
 
 
+def _resolve_audio_path(audio_asset_id: str | None) -> Path | None:
+    """从 audio_asset_id 解析出实际的音频文件路径。"""
+    if not audio_asset_id:
+        return None
+
+    settings = get_settings()
+    audio_dir = Path(settings.audio_asset_dir)
+
+    # 查找匹配的文件（可能有不同后缀）
+    for ext in [".mp3", ".wav", ".flac", ".m4a", ".aac"]:
+        audio_file = audio_dir / f"{audio_asset_id}{ext}"
+        if audio_file.exists():
+            return audio_file
+
+    # 尝试通配符匹配（文件名可能包含时间戳）
+    matches = list(audio_dir.glob(f"{audio_asset_id}*"))
+    if matches:
+        return matches[0]
+
+    logger.warning("audio_file_not_found", audio_asset_id=audio_asset_id)
+    return None
+
+
 async def build_timeline(ctx: dict | None, mix_id: str) -> None:
     logger.info("timeline_worker.started", mix_id=mix_id)
     mix = await repo.get_request(mix_id)
     if mix is None:
         logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
         return
-    audio_path = Path(mix.audio_asset_id) if mix.audio_asset_id else None
+    audio_path = _resolve_audio_path(mix.audio_asset_id)
     
     # 处理语言和 Prompt
     # 默认为 "auto" -> 让 Whisper 自动检测

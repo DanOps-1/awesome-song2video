@@ -129,3 +129,44 @@ class SongMixRepository:
             await session.commit()
             await session.refresh(merged)
             return merged
+
+    async def list_requests(self) -> list[SongMixRequest]:
+        """获取所有混剪任务列表。"""
+        async with get_session() as session:
+            stmt = select(SongMixRequest).order_by(cast(Any, SongMixRequest.created_at).desc())
+            result = await session.exec(stmt)
+            return list(result)
+
+    async def update_status(
+        self, mix_id: str, *, timeline_status: str | None = None, render_status: str | None = None
+    ) -> None:
+        """更新任务状态。"""
+        async with get_session() as session:
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix is None:
+                raise ValueError("mix not found")
+            if timeline_status is not None:
+                mix.timeline_status = timeline_status
+            if render_status is not None:
+                mix.render_status = render_status
+            await session.commit()
+
+    async def delete_request(self, mix_id: str) -> None:
+        """删除混剪任务及其关联数据。"""
+        async with get_session() as session:
+            # 先删除关联的 VideoSegmentMatch
+            lines = await self.list_lines(mix_id)
+            line_ids = [line.id for line in lines]
+            if line_ids:
+                await session.execute(
+                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                )
+            # 删除 LyricLine
+            await session.execute(
+                delete(LyricLine).where(cast(Any, LyricLine.mix_request_id) == mix_id)
+            )
+            # 删除 SongMixRequest
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix:
+                await session.delete(mix)
+            await session.commit()

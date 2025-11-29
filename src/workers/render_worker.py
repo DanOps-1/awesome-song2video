@@ -92,16 +92,20 @@ async def _render_mix_impl(job_id: str) -> None:
     if mix is None:
         logger.error("render_worker.mix_missing", job_id=job_id, mix_id=job.mix_request_id)
         await repo.mark_failure(job_id, error_log="mix not found")
+        await song_repo.update_status(job.mix_request_id, render_status="failed")
         return
 
     lines = await song_repo.list_locked_lines(job.mix_request_id)
     if not lines:
         logger.warning("render_worker.no_lines", job_id=job_id, mix_id=job.mix_request_id)
         await repo.mark_failure(job_id, error_log="no locked lines")
+        await song_repo.update_status(job.mix_request_id, render_status="failed")
         return
 
     # 开始渲染
     await repo.update_status(job_id, status="running")
+    await repo.update_progress(job_id, 0.0)
+    await song_repo.update_status(job.mix_request_id, render_status="running")
     logger.info("render_worker.started", job_id=job_id, mix_id=job.mix_request_id)
 
     try:
@@ -112,7 +116,9 @@ async def _render_mix_impl(job_id: str) -> None:
         with tempfile.TemporaryDirectory(dir=tmp_root.as_posix()) as tmp_dir:
             tmp_path = Path(tmp_dir)
             builder.write_edl(render_lines, tmp_path / "timeline.json")
+            await repo.update_progress(job_id, 5.0)  # 5%: 准备完成
             clips, clip_stats = await _extract_clips(render_lines, job_id, tmp_path)
+            await repo.update_progress(job_id, 50.0)  # 50%: 片段下载完成
             concat_file = tmp_path / "concat.txt"
             # 使用文件名而非绝对路径（所有 clip 都在同一目录下）
             concat_file.write_text("".join([f"file '{clip.name}'\n" for clip in clips]))
@@ -132,17 +138,20 @@ async def _render_mix_impl(job_id: str) -> None:
                     output_video.as_posix(),
                 ]
             )
+            await repo.update_progress(job_id, 70.0)  # 70%: 视频合并完成
             audio_path = _resolve_audio_path(mix)
             if audio_path:
                 audio_enriched = tmp_path / f"{job_id}_with_audio.mp4"
                 _attach_audio_track(output_video, audio_path, audio_enriched, render_lines)
                 output_video = audio_enriched
 
+            await repo.update_progress(job_id, 85.0)  # 85%: 音频添加完成
             # 生成字幕文件并烧录到视频
             subtitle_file = _write_srt(render_lines, tmp_path / f"{job_id}.srt")
             video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
             _burn_subtitles(output_video, subtitle_file, video_with_subtitles)
             output_video = video_with_subtitles
+            await repo.update_progress(job_id, 95.0)  # 95%: 字幕烧录完成
 
             # 计算对齐指标
             finished_at = datetime.utcnow()
@@ -188,9 +197,11 @@ async def _render_mix_impl(job_id: str) -> None:
                 )
 
         # 保存成功结果和 metrics
+        await repo.update_progress(job_id, 100.0)  # 100%: 完成
         await repo.mark_success(
             job_id, output_asset_id=output_object, metrics={"render": render_metrics_dict}
         )
+        await song_repo.update_status(job.mix_request_id, render_status="success")
 
         # 推送 OTEL 指标
         push_render_metrics(
@@ -215,6 +226,7 @@ async def _render_mix_impl(job_id: str) -> None:
     except Exception as exc:
         logger.error("render_worker.failed", job_id=job_id, error=str(exc), exc_info=True)
         await repo.mark_failure(job_id, error_log=str(exc))
+        await song_repo.update_status(job.mix_request_id, render_status="failed")
         raise
     finally:
         cleanup_tmp_root()

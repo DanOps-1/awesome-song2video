@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from src.api.v1.routes import mix_lines, mixes, preview, render, render_config
+from src.api.v1.routes.admin import router as admin_router
 from src.infra.config.settings import get_settings
 from src.infra.observability.otel import configure_logging
 from src.infra.persistence.database import init_engine, init_models
@@ -16,6 +17,7 @@ app.include_router(mix_lines.router)
 app.include_router(preview.router)
 app.include_router(render.router)
 app.include_router(render_config.router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

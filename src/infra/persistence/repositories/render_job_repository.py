@@ -80,3 +80,56 @@ class RenderJobRepository:
             job.error_log = error_log
             job.finished_at = datetime.utcnow()
             await session.commit()
+
+    async def list_by_mix(self, mix_id: str) -> list[RenderJob]:
+        """获取指定混剪任务的所有渲染任务。"""
+        from sqlmodel import select
+
+        async with get_session() as session:
+            stmt = select(RenderJob).where(RenderJob.mix_request_id == mix_id).order_by(RenderJob.submitted_at.desc())
+            result = await session.exec(stmt)
+            return list(result)
+
+    async def list_all(self) -> list[RenderJob]:
+        """获取所有渲染任务。"""
+        from sqlmodel import select
+
+        async with get_session() as session:
+            stmt = select(RenderJob).order_by(RenderJob.submitted_at.desc())
+            result = await session.exec(stmt)
+            return list(result)
+
+    async def update_progress(self, job_id: str, progress: float) -> None:
+        """更新渲染任务进度。
+
+        Args:
+            job_id: 任务 ID
+            progress: 进度值 (0.0-100.0)
+        """
+        async with get_session() as session:
+            job = await session.get(RenderJob, job_id)
+            if job is None:
+                raise ValueError("render job not found")
+            job.progress = min(100.0, max(0.0, progress))
+            await session.commit()
+
+    async def cancel(self, job_id: str) -> bool:
+        """取消渲染任务。
+
+        Args:
+            job_id: 任务 ID
+
+        Returns:
+            是否成功取消（只有 queued 或 running 状态的任务可以取消）
+        """
+        async with get_session() as session:
+            job = await session.get(RenderJob, job_id)
+            if job is None:
+                raise ValueError("render job not found")
+            if job.job_status not in ("queued", "running"):
+                return False
+            job.job_status = "cancelled"
+            job.error_log = "Cancelled by user"
+            job.finished_at = datetime.utcnow()
+            await session.commit()
+            return True

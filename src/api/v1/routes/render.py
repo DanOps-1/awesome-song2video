@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 from uuid import uuid4
 
@@ -10,12 +11,14 @@ from pydantic import BaseModel
 from src.domain.models.render_job import RenderJob
 from src.infra.config.settings import get_settings
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
+from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.workers import redis_settings
 from src.workers.render_worker import render_mix
 
 
 router = APIRouter(prefix="/api/v1/mixes/{mix_id}/render", tags=["render"])
 repo = RenderJobRepository()
+mix_repo = SongMixRepository()
 settings = get_settings()
 
 
@@ -27,6 +30,7 @@ class RenderOptions(BaseModel):
 class RenderResponse(BaseModel):
     job_id: str
     status: str
+    progress: float = 0.0
 
 
 @router.post("", response_model=RenderResponse, status_code=202)
@@ -41,11 +45,14 @@ async def submit_render(
         ffmpeg_script="",
     )
     await repo.save(job)
+    # 更新 mix 的 render_status 为 "queued"
+    await mix_repo.update_status(mix_id, render_status="queued")
     if settings.enable_async_queue:
         pool = await create_pool(redis_settings())
         await pool.enqueue_job("render_mix", job.id)
     else:
-        await render_mix({}, job.id)
+        # 在后台运行渲染任务，不阻塞 API 响应
+        asyncio.create_task(render_mix({}, job.id))
     return RenderResponse(job_id=job.id, status=job.job_status)
 
 
@@ -54,4 +61,4 @@ async def get_render_status(mix_id: Annotated[str, Path()], job_id: str) -> Rend
     job = await repo.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="render job not found")
-    return RenderResponse(job_id=job.id, status=job.job_status)
+    return RenderResponse(job_id=job.id, status=job.job_status, progress=job.progress)
