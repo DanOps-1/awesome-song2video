@@ -23,7 +23,7 @@ settings = get_settings()
 class MixCreateRequest(BaseModel):
     song_title: str = Field(..., min_length=1, max_length=128)
     artist: str | None = None
-    source_type: str = Field(..., pattern="^(upload|catalog)$")
+    source_type: str = Field(..., pattern="^(upload|catalog|manual)$")
     audio_asset_id: str | None = None
     lyrics_text: str | None = None
     language: str = "auto"
@@ -67,8 +67,12 @@ class UpdateLineRequest(BaseModel):
 
 @router.post("", status_code=201, response_model=MixResponse)
 async def create_mix(payload: MixCreateRequest) -> MixResponse:
-    if not payload.audio_asset_id and not payload.lyrics_text:
-        raise HTTPException(status_code=400, detail="必须提供音频或歌词")
+    # 手动模式必须提供歌词，其他模式必须提供音频
+    if payload.source_type == "manual":
+        if not payload.lyrics_text:
+            raise HTTPException(status_code=400, detail="手动模式必须提供歌词")
+    elif not payload.audio_asset_id:
+        raise HTTPException(status_code=400, detail="必须提供音频文件")
 
     mix = SongMixRequest(
         id=str(uuid4()),
