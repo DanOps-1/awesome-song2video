@@ -12,7 +12,7 @@ export default function Create() {
   const [formData, setFormData] = useState({
     song_title: '',
     artist: '',
-    language: 'zh',
+    language: 'auto',
   })
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -212,9 +212,9 @@ export default function Create() {
                 onChange={(e) => setFormData(prev => ({ ...prev, language: e.target.value }))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               >
+                <option value="auto">自动检测</option>
                 <option value="zh">中文</option>
                 <option value="en">英文</option>
-                <option value="auto">自动检测</option>
               </select>
             </div>
 
