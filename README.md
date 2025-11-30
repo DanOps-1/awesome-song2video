@@ -129,13 +129,36 @@
 
 ### 环境要求
 
-- Python >= 3.11
+- Python >= 3.10
 - Node.js >= 18
 - FFmpeg
 - Redis
 - (可选) MinIO
 
-### 安装
+### 方式一：Miniconda 安装（推荐）
+
+```bash
+# 克隆项目
+git clone git@github.com:DanOps-1/awsome-song2video.git
+cd awsome-song2video
+
+# 安装 Miniconda（如未安装）
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+
+# 创建 conda 环境
+conda create -n song2video python=3.10 -y
+conda activate song2video
+
+# 安装后端依赖
+pip install -e ".[dev]"
+
+# 安装前端依赖
+cd frontend && npm install && cd ..
+cd web && npm install && cd ..
+```
+
+### 方式二：venv 虚拟环境安装
 
 ```bash
 # 克隆项目
@@ -153,6 +176,35 @@ pip install -e ".[dev]"
 cd frontend && npm install && cd ..
 cd web && npm install && cd ..
 ```
+
+### 方式三：Docker 启动
+
+```bash
+# 克隆项目
+git clone git@github.com:DanOps-1/awsome-song2video.git
+cd awsome-song2video
+
+# 复制并配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入必要的 API 密钥
+
+# 构建并启动
+docker-compose up --build
+
+# 或后台运行
+docker-compose up -d --build
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+**Docker 说明**：
+- 默认运行 `scripts/dev/run_audio_demo.py` 演示脚本
+- Whisper 模型会缓存到 Docker volume，避免重复下载
+- 如需运行 API 服务，修改 `docker-compose.yml` 中的 command
 
 ### 配置
 
@@ -189,26 +241,39 @@ python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fall
 ### 运行
 
 ```bash
-# 启动 API 服务
-uvicorn src.api.main:app --reload --port 8000
+# 启动 API 服务（端口 8000）
+python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 启动渲染 Worker
+# 启动渲染 Worker（可选，用于视频渲染）
 python -m src.workers.render_worker
 
-# 启动时间线生成 Worker
+# 启动时间线生成 Worker（可选，用于异步任务）
 python -m src.workers.timeline_worker
 
-# 启动用户前端 (端口 5173)
-cd frontend && npm run dev
+# 启动用户前端（端口 6008）
+cd frontend && npm run dev -- --port 6008 --host 0.0.0.0
 
-# 启动管理后台 (端口 6006)
-cd web && npm run dev
+# 启动管理后台（端口 6006）
+cd web && npm run dev -- --port 6006 --host 0.0.0.0
+```
+
+**后台运行（推荐）**：
+
+```bash
+# 后端 API
+python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/backend.log 2>&1 &
+
+# 用户前端
+cd frontend && npm run dev -- --port 6008 --host 0.0.0.0 > /tmp/user-frontend.log 2>&1 &
+
+# 管理后台
+cd web && npm run dev -- --port 6006 --host 0.0.0.0 > /tmp/admin-frontend.log 2>&1 &
 ```
 
 ### 访问地址
 
 - **API 文档**: http://localhost:8000/docs
-- **用户前端**: http://localhost:5173
+- **用户前端**: http://localhost:6008
 - **管理后台**: http://localhost:6006
 
 ### 快速测试
