@@ -129,9 +129,12 @@ export default function Status() {
 
   // 从 linesData 获取带候选的歌词行（用于确认阶段）
   const candidateLines = linesData?.lines ?? []
-  const lockedCount = candidateLines.filter(l => l.status === 'locked').length
-  const totalCount = candidateLines.length
-  const allLocked = totalCount > 0 && lockedCount === totalCount
+  // 有候选的行需要手动确认，没候选的行（fallback）视为已确认
+  const linesNeedingLock = candidateLines.filter(l => l.candidates.length > 0)
+  const lockedCount = linesNeedingLock.filter(l => l.status === 'locked').length
+  const fallbackCount = candidateLines.filter(l => l.candidates.length === 0).length
+  const totalNeedingLock = linesNeedingLock.length
+  const allLocked = candidateLines.length > 0 && lockedCount === totalNeedingLock
 
   // 开始编辑
   const startEdit = (lineId: string, text: string) => {
@@ -272,12 +275,13 @@ export default function Status() {
             {timelineStatus === 'generated' && (
               <>
                 <p className="text-white/80 mt-1">
-                  已确认 {lockedCount} / {totalCount} 句歌词
+                  已确认 {lockedCount} / {totalNeedingLock} 句歌词
+                  {fallbackCount > 0 && ` (${fallbackCount} 句使用默认视频)`}
                 </p>
                 <div className="mt-2 bg-white/20 rounded-full h-2 overflow-hidden">
                   <div
                     className="bg-white h-full transition-all duration-500"
-                    style={{ width: `${totalCount > 0 ? (lockedCount / totalCount) * 100 : 0}%` }}
+                    style={{ width: `${totalNeedingLock > 0 ? (lockedCount / totalNeedingLock) * 100 : 100}%` }}
                   />
                 </div>
               </>
@@ -413,14 +417,16 @@ export default function Status() {
                         ) : line.candidates.length > 0 ? (
                           <div className="w-5 h-5 border-2 border-purple-400 rounded-full" />
                         ) : (
-                          <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                          <AlertCircle className="w-5 h-5 text-orange-400" title="使用默认视频" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-gray-900 truncate">{line.original_text}</p>
                         <p className="text-xs text-gray-500">
                           {(line.start_time_ms / 1000).toFixed(1)}s - {(line.end_time_ms / 1000).toFixed(1)}s
-                          {line.candidates.length > 0 && ` | ${line.candidates.length} 个候选`}
+                          {line.candidates.length > 0
+                            ? ` | ${line.candidates.length} 个候选`
+                            : ' | 默认视频'}
                         </p>
                       </div>
                       {line.status !== 'locked' && line.candidates.length > 0 && (
