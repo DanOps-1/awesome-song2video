@@ -1,7 +1,13 @@
-"""歌词时间线 Worker。"""
+"""歌词时间线 Worker。
+
+两阶段工作流：
+1. transcribe_lyrics: 只进行 Whisper 识别，生成歌词行 (pending -> transcribing -> transcribed)
+2. match_videos: 对已确认的歌词进行视频匹配 (transcribed -> matching -> generated)
+"""
 
 from __future__ import annotations
 
+import subprocess
 import structlog
 
 from pathlib import Path
@@ -26,10 +32,33 @@ LYRIC_PROMPTS = {
     "ko": "이것은 노래 가사입니다. 배경 음악은 무시해 주세요.",
     "es": "Esta es la letra de una canción, por favor ignora la música de fondo.",
     "fr": "Ce sont des paroles de chansons, veuillez ignorer la musique de fond.",
-    "de": "Ce sont des paroles de chansons, veuillez ignorer la musique de fond.",  # Copy paste error in thought, correcting to German
+    "de": "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik.",
 }
-# German prompt correction: "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik."
-LYRIC_PROMPTS["de"] = "Das ist ein Liedtext, bitte ignorieren Sie die Hintergrundmusik."
+
+
+def _get_audio_duration_ms(audio_path: Path) -> int:
+    """使用 ffprobe 获取音频文件时长（毫秒）。"""
+    cmd = [
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        audio_path.as_posix(),
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(float(result.stdout.strip()) * 1000)
+    except Exception as exc:
+        logger.warning("ffprobe.audio_duration_failed", path=audio_path, error=str(exc))
+    return 0
 
 
 def _resolve_audio_path(audio_asset_id: str | None) -> Path | None:
@@ -55,31 +84,187 @@ def _resolve_audio_path(audio_asset_id: str | None) -> Path | None:
     return None
 
 
+async def transcribe_lyrics(ctx: dict | None, mix_id: str) -> None:
+    """阶段1：只进行 Whisper 识别，生成歌词行供用户校对。
+
+    状态流转: pending -> transcribing -> transcribed
+    """
+    logger.info("timeline_worker.transcribe_started", mix_id=mix_id)
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
+        return
+
+    # 更新状态为 transcribing
+    await repo.update_timeline_status(mix_id, "transcribing")
+    await repo.update_timeline_progress(mix_id, 0.0)
+
+    audio_path = _resolve_audio_path(mix.audio_asset_id)
+    if not audio_path:
+        logger.error("timeline_worker.audio_not_found", mix_id=mix_id)
+        await repo.update_timeline_status(mix_id, "error")
+        return
+
+    # 处理语言
+    req_language = getattr(mix, "language", "auto")
+    whisper_language = None
+    if req_language and req_language != "auto":
+        whisper_language = req_language
+
+    # 进度回调
+    async def on_progress(progress: float) -> None:
+        await repo.update_timeline_progress(mix_id, progress)
+        logger.info("timeline_worker.transcribe_progress", mix_id=mix_id, progress=round(progress, 1))
+
+    # 只进行 Whisper 识别
+    segments = await builder.transcribe_only(
+        audio_path=audio_path,
+        language=whisper_language,
+        on_progress=on_progress,
+    )
+
+    # 保存歌词行（不带视频候选）
+    lines: list[LyricLine] = []
+    for index, seg in enumerate(segments, start=1):
+        text = str(seg.get("text", "")).strip()
+        if not text:
+            continue
+        start_ms = int(float(seg.get("start", 0)) * 1000)
+        end_ms = int(float(seg.get("end", 0)) * 1000)
+        lines.append(
+            LyricLine(
+                id=str(uuid4()),
+                mix_request_id=mix_id,
+                line_no=index,
+                original_text=text,
+                start_time_ms=start_ms,
+                end_time_ms=end_ms,
+                status="pending",  # 等待用户确认
+            )
+        )
+
+    await repo.bulk_insert_lines(lines)
+    await repo.update_timeline_status(mix_id, "transcribed")
+    logger.info("timeline_worker.transcribe_completed", mix_id=mix_id, lines=len(lines))
+
+
+async def match_videos(ctx: dict | None, mix_id: str) -> None:
+    """阶段2：对已确认的歌词进行视频匹配。
+
+    状态流转: transcribed -> matching -> generated
+    前提条件: lyrics_confirmed = True
+    """
+    logger.info("timeline_worker.match_started", mix_id=mix_id)
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
+        return
+
+    if not mix.lyrics_confirmed:
+        logger.warning("timeline_worker.lyrics_not_confirmed", mix_id=mix_id)
+        return
+
+    # 更新状态为 matching
+    await repo.update_timeline_status(mix_id, "matching")
+    await repo.update_timeline_progress(mix_id, 0.0)
+
+    # 获取音频时长
+    audio_path = _resolve_audio_path(mix.audio_asset_id)
+    audio_duration_ms = _get_audio_duration_ms(audio_path) if audio_path else 0
+
+    # 获取已确认的歌词行
+    existing_lines = await repo.list_lines(mix_id)
+    if not existing_lines:
+        logger.warning("timeline_worker.no_lyrics", mix_id=mix_id)
+        await repo.update_timeline_status(mix_id, "error")
+        return
+
+    # 转换为 match_videos_for_lines 需要的格式
+    lines_for_match = [
+        {
+            "text": line.original_text,
+            "start_ms": line.start_time_ms,
+            "end_ms": line.end_time_ms,
+        }
+        for line in existing_lines
+    ]
+
+    # 进度回调
+    async def on_progress(progress: float) -> None:
+        await repo.update_timeline_progress(mix_id, progress)
+        logger.info("timeline_worker.match_progress", mix_id=mix_id, progress=round(progress, 1))
+
+    # 进行视频匹配
+    result = await builder.match_videos_for_lines(
+        lines=lines_for_match,
+        audio_duration_ms=audio_duration_ms,
+        on_progress=on_progress,
+    )
+
+    # 更新歌词行的候选片段
+    for existing_line, result_line in zip(existing_lines, result.lines):
+        candidates: list[VideoSegmentMatch] = []
+        for candidate in result_line.candidates:
+            candidates.append(
+                VideoSegmentMatch(
+                    id=candidate["id"],
+                    line_id=existing_line.id,
+                    source_video_id=candidate["source_video_id"],
+                    index_id=get_settings().tl_index_id,
+                    start_time_ms=candidate["start_time_ms"],
+                    end_time_ms=candidate["end_time_ms"],
+                    score=candidate["score"],
+                    generated_by="auto",
+                )
+            )
+        await repo.replace_candidates(existing_line.id, candidates)
+
+        # 更新歌词行状态和置信度
+        existing_line.status = "matched"
+        existing_line.auto_confidence = candidates[0].score if candidates else 0.0
+        await repo.save_line(existing_line)
+
+    await repo.update_timeline_status(mix_id, "generated")
+    logger.info("timeline_worker.match_completed", mix_id=mix_id, lines=len(result.lines))
+
+
 async def build_timeline(ctx: dict | None, mix_id: str) -> None:
+    """完整构建流程（兼容旧代码）：Whisper 识别 + 视频匹配。
+
+    注意：新流程应使用 transcribe_lyrics + match_videos 两阶段。
+    """
     logger.info("timeline_worker.started", mix_id=mix_id)
     mix = await repo.get_request(mix_id)
     if mix is None:
         logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
         return
+
+    # 更新状态为 generating
+    await repo.update_timeline_status(mix_id, "generating")
+    await repo.update_timeline_progress(mix_id, 0.0)
+
     audio_path = _resolve_audio_path(mix.audio_asset_id)
-    
+
     # 处理语言和 Prompt
-    # 默认为 "auto" -> 让 Whisper 自动检测
-    # 如果指定了语言，则使用对应语言的 Prompt 来减少幻觉
     req_language = getattr(mix, "language", "auto")
-    
+
     whisper_language = None
     prompt = None
-    
+
     if req_language and req_language != "auto":
         whisper_language = req_language
-        # prompt = LYRIC_PROMPTS.get(req_language)  # 注释掉以获得更多细粒度片段
-    
+
+    # 进度回调：将进度更新到数据库
+    async def on_progress(progress: float) -> None:
+        await repo.update_timeline_progress(mix_id, progress)
+        logger.info("timeline_worker.progress", mix_id=mix_id, progress=round(progress, 1))
+
     result = await builder.build(
-        audio_path=audio_path, 
+        audio_path=audio_path,
         lyrics_text=mix.lyrics_text,
         language=whisper_language,
-        prompt=prompt
+        prompt=prompt,
+        on_progress=on_progress,
     )
 
     lines: list[LyricLine] = []
@@ -122,4 +307,8 @@ async def health_check(ctx: dict | None) -> None:  # pragma: no cover - cron hoo
 
 
 class WorkerSettings(BaseWorkerSettings):
-    functions = ["src.workers.timeline_worker.build_timeline"]
+    functions = [
+        "src.workers.timeline_worker.build_timeline",
+        "src.workers.timeline_worker.transcribe_lyrics",
+        "src.workers.timeline_worker.match_videos",
+    ]

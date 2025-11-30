@@ -31,6 +31,7 @@ class RenderResponse(BaseModel):
     job_id: str
     status: str
     progress: float = 0.0
+    output_url: str | None = None
 
 
 @router.post("", response_model=RenderResponse, status_code=202)
@@ -61,4 +62,19 @@ async def get_render_status(mix_id: Annotated[str, Path()], job_id: str) -> Rend
     job = await repo.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="render job not found")
-    return RenderResponse(job_id=job.id, status=job.job_status, progress=job.progress)
+
+    # 如果渲染成功，生成视频下载 URL
+    output_url = None
+    if job.job_status == "success" and job.output_asset_id:
+        # output_asset_id 格式为 "artifacts/renders/{job_id}.mp4"
+        # 转换为 URL 路径 "/api/v1/renders/{job_id}.mp4"
+        from pathlib import Path
+        asset_path = Path(job.output_asset_id)
+        output_url = f"/api/v1/renders/{asset_path.name}"
+
+    return RenderResponse(
+        job_id=job.id,
+        status=job.job_status,
+        progress=job.progress,
+        output_url=output_url
+    )

@@ -12,7 +12,10 @@ export interface MixResponse {
   id: string
   song_title: string
   timeline_status: string
+  timeline_progress: number
+  lyrics_confirmed: boolean
   render_status: string
+  lines: LineInfo[]
 }
 
 export interface LineInfo {
@@ -57,8 +60,33 @@ export async function createMix(data: {
   return resp
 }
 
+export async function getMixStatus(mixId: string): Promise<MixResponse> {
+  const { data } = await apiClient.get(`/mixes/${mixId}`)
+  return data
+}
+
 export async function generateTimeline(mixId: string): Promise<{ trace_id: string }> {
   const { data } = await apiClient.post(`/mixes/${mixId}/generate-timeline`)
+  return data
+}
+
+export async function transcribeLyrics(mixId: string): Promise<{ trace_id: string; message: string }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/transcribe`)
+  return data
+}
+
+export async function updateLine(mixId: string, lineId: string, text: string): Promise<LineInfo> {
+  const { data } = await apiClient.patch(`/mixes/${mixId}/lines/${lineId}`, { text })
+  return data
+}
+
+export async function confirmLyrics(mixId: string): Promise<{ message: string }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/confirm-lyrics`)
+  return data
+}
+
+export async function matchVideos(mixId: string): Promise<{ trace_id: string; message: string }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/match-videos`)
   return data
 }
 
@@ -80,7 +108,12 @@ export async function submitRender(mixId: string): Promise<{ job_id: string; sta
   return data
 }
 
-export async function getRenderStatus(mixId: string, jobId: string): Promise<{ job_id: string; status: string; progress: number }> {
+export async function getRenderStatus(mixId: string, jobId: string): Promise<{
+  job_id: string
+  status: string
+  progress: number
+  output_url: string | null
+}> {
   const { data } = await apiClient.get(`/mixes/${mixId}/render`, {
     params: { job_id: jobId },
   })

@@ -56,15 +56,15 @@ export default function Result() {
                 />
               </div>
               <p className="text-xs text-gray-400 mt-2">
-                {renderData?.progress !== undefined && renderData.progress < 50
-                  ? '正在下载视频片段...'
-                  : renderData?.progress !== undefined && renderData.progress < 70
-                  ? '正在合并视频...'
-                  : renderData?.progress !== undefined && renderData.progress < 85
-                  ? '正在添加音频...'
-                  : renderData?.progress !== undefined && renderData.progress < 100
-                  ? '正在烧录字幕...'
-                  : '即将完成...'}
+                {(() => {
+                  const progress = renderData?.progress ?? 0
+                  if (progress < 5) return '准备中...'
+                  if (progress < 50) return `正在下载视频片段... (${Math.round((progress - 5) / 45 * 100)}%)`
+                  if (progress < 70) return '正在合并视频...'
+                  if (progress < 85) return '正在添加音频...'
+                  if (progress < 95) return '正在烧录字幕...'
+                  return '即将完成...'
+                })()}
               </p>
             </>
           )}
@@ -75,14 +75,33 @@ export default function Result() {
                 <CheckCircle className="w-10 h-10 text-green-600" />
               </div>
               <h1 className="text-2xl font-bold text-gray-900 mb-2">生成完成</h1>
-              <p className="text-gray-500 mb-6">
+              <p className="text-gray-500 mb-4">
                 您的混剪视频已生成成功！
               </p>
+
+              {/* 视频预览 */}
+              {renderData?.output_url && (
+                <div className="mb-6 rounded-xl overflow-hidden bg-black">
+                  <video
+                    src={renderData.output_url}
+                    controls
+                    className="w-full max-h-[300px]"
+                    playsInline
+                  >
+                    您的浏览器不支持视频播放
+                  </video>
+                </div>
+              )}
+
               <div className="space-y-3">
-                <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-purple-700 hover:to-indigo-700">
+                <a
+                  href={renderData?.output_url || '#'}
+                  download={`mix_${mixId}.mp4`}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-purple-700 hover:to-indigo-700"
+                >
                   <Download className="w-5 h-5" />
                   下载视频
-                </button>
+                </a>
                 <Link
                   to="/"
                   className="w-full flex items-center justify-center gap-2 border border-gray-300 py-3 rounded-xl font-semibold hover:bg-gray-50"

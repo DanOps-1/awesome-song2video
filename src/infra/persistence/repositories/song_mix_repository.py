@@ -38,6 +38,15 @@ class SongMixRepository:
             mix.timeline_status = status
             await session.commit()
 
+    async def update_timeline_progress(self, mix_id: str, progress: float) -> None:
+        """更新时间线生成进度 (0-100)。"""
+        async with get_session() as session:
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix is None:
+                raise ValueError("mix not found")
+            mix.timeline_progress = min(100.0, max(0.0, progress))
+            await session.commit()
+
     async def list_lines(self, mix_id: str) -> list[LyricLine]:
         async with get_session() as session:
             stmt = (
@@ -129,6 +138,46 @@ class SongMixRepository:
             await session.commit()
             await session.refresh(merged)
             return merged
+
+    async def update_line_text(self, line_id: str, new_text: str) -> LyricLine:
+        """更新歌词行的文本内容。"""
+        async with get_session() as session:
+            line = await session.get(LyricLine, line_id)
+            if line is None:
+                raise ValueError("line not found")
+            line.original_text = new_text
+            await session.commit()
+            await session.refresh(line)
+            return line
+
+    async def lock_line_segment(self, line_id: str, segment_id: str | None) -> LyricLine:
+        """锁定歌词行的选中视频片段。
+
+        Args:
+            line_id: 歌词行 ID
+            segment_id: 选中的视频片段 ID，为 None 时解除锁定
+
+        Returns:
+            更新后的歌词行
+        """
+        async with get_session() as session:
+            line = await session.get(LyricLine, line_id)
+            if line is None:
+                raise ValueError("歌词行不存在")
+            line.selected_segment_id = segment_id
+            line.status = "locked" if segment_id else "matched"
+            await session.commit()
+            await session.refresh(line)
+            return line
+
+    async def confirm_lyrics(self, mix_id: str) -> None:
+        """确认所有歌词，标记 mix 的 lyrics_confirmed 为 True。"""
+        async with get_session() as session:
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix is None:
+                raise ValueError("mix not found")
+            mix.lyrics_confirmed = True
+            await session.commit()
 
     async def list_requests(self) -> list[SongMixRequest]:
         """获取所有混剪任务列表。"""

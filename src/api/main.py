@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from src.api.v1.routes import mix_lines, mixes, preview, render, render_config
 from src.api.v1.routes.admin import router as admin_router
@@ -18,6 +20,11 @@ app.include_router(preview.router)
 app.include_router(render.router)
 app.include_router(render_config.router)
 app.include_router(admin_router)
+
+# 挂载静态文件目录用于视频下载
+renders_dir = Path("artifacts/renders")
+renders_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/api/v1/renders", StaticFiles(directory=renders_dir), name="renders")
 
 
 @app.get("/health")

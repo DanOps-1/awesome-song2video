@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { Music, Upload, ArrowLeft, Loader2, X, FileAudio } from 'lucide-react'
-import { createMix, generateTimeline, uploadAudio } from '@/api/mix'
+import { createMix, transcribeLyrics, uploadAudio } from '@/api/mix'
 
 export default function Create() {
   const navigate = useNavigate()
@@ -84,8 +84,9 @@ export default function Create() {
         lyrics_text: formData.lyrics_text || undefined,
         language: formData.language,
       })
-      // 触发时间线生成（不等待完成，让后台异步处理）
-      generateTimeline(mix.id).catch(console.error)
+      // 触发歌词识别（不等待完成，让后台异步处理）
+      // 识别完成后用户可以校对歌词，确认后再匹配视频
+      transcribeLyrics(mix.id).catch(console.error)
       return mix
     },
     onSuccess: (mix) => {

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Any, Callable, Coroutine, Optional, TypedDict
 import re
 from uuid import uuid4
+
+# 进度回调类型: async def callback(progress: float) -> None
+ProgressCallback = Callable[[float], Coroutine[Any, Any, None]]
 
 import structlog
 
@@ -192,31 +195,230 @@ class TimelineBuilder:
             
         return split_segments
 
+    async def transcribe_only(
+        self,
+        audio_path: Path,
+        language: str | None = None,
+        prompt: str | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> list[dict[str, Any]]:
+        """只进行 Whisper 识别，返回歌词片段列表（不进行视频匹配）。
+
+        返回格式: [{"text": "歌词", "start": 开始秒, "end": 结束秒}, ...]
+        """
+        async def report_progress(progress: float) -> None:
+            if on_progress:
+                await on_progress(progress)
+
+        await report_progress(5.0)  # 5%: 开始处理音频
+        audio_duration_ms = self._get_audio_duration(audio_path)
+        self._logger.info(
+            "timeline_builder.audio_info",
+            path=str(audio_path),
+            duration_ms=audio_duration_ms
+        )
+        await report_progress(20.0)  # 20%: 开始 Whisper 识别
+
+        raw_segments = await transcribe_with_timestamps(
+            audio_path,
+            language=language,
+            prompt=prompt
+        )
+        segments = [dict(segment) for segment in raw_segments]
+
+        await report_progress(80.0)  # 80%: Whisper 识别完成
+
+        # 分割长片段
+        segments = self._explode_segments(segments)
+
+        await report_progress(100.0)  # 100%: 完成
+        return segments
+
+    async def match_videos_for_lines(
+        self,
+        lines: list[dict[str, Any]],
+        audio_duration_ms: int = 0,
+        on_progress: ProgressCallback | None = None,
+    ) -> TimelineResult:
+        """对已确认的歌词行进行视频匹配。
+
+        Args:
+            lines: 歌词行列表，格式 [{"text": "...", "start_ms": int, "end_ms": int}, ...]
+            audio_duration_ms: 音频总时长（毫秒），用于填充尾部
+            on_progress: 进度回调
+        """
+        self._candidate_cache.clear()
+        self._used_segments.clear()
+
+        async def report_progress(progress: float) -> None:
+            if on_progress:
+                await on_progress(progress)
+
+        await report_progress(5.0)
+
+        # 转换为内部 segments 格式
+        segments: list[dict[str, Any]] = []
+        for line in lines:
+            segments.append({
+                "text": line["text"],
+                "start": line["start_ms"] / 1000.0,
+                "end": line["end_ms"] / 1000.0,
+            })
+
+        # 标记非歌词内容
+        for seg in segments:
+            text = str(seg.get("text", "")).strip()
+            start = float(seg.get("start", 0))
+            end = float(seg.get("end", 0))
+            duration_s = end - start
+
+            if self._is_non_lyric_text(text):
+                if duration_s < 10.0:
+                    seg["is_non_lyric"] = True
+                else:
+                    seg["is_non_lyric"] = False
+                    seg["search_prompt"] = "cinematic music video intro, atmospheric, slow motion"
+
+        # 切分长片段
+        segments = self._split_by_duration(segments, max_duration=12.0)
+        segments.sort(key=lambda x: float(x.get("start", 0)))
+
+        # 进行视频匹配（复用 build 方法的匹配逻辑）
+        timeline = TimelineResult()
+        cursor_ms = 0
+        total_segments = len(segments)
+
+        for seg_idx, seg in enumerate(segments):
+            if total_segments > 0:
+                match_progress = 10.0 + (seg_idx / total_segments) * 85.0
+                await report_progress(match_progress)
+
+            raw_text = str(seg.get("text", ""))
+            text = raw_text.strip().strip("'\"")
+            if not text:
+                continue
+
+            start_ms = int(float(seg.get("start", 0)) * 1000)
+            end_ms = int(float(seg.get("end", 0)) * 1000)
+
+            # 间隙处理
+            if cursor_ms > 0 and start_ms > cursor_ms:
+                gap = start_ms - cursor_ms
+                if gap > 2000:
+                    gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                    gap_candidates = await self._get_candidates(gap_prompt, limit=20)
+                    normalized_gap = self._normalize_candidates(gap_candidates, cursor_ms, start_ms)
+                    selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
+                    if not selected_gap:
+                        selected_gap = [{
+                            "id": str(uuid4()),
+                            "source_video_id": self._settings.fallback_video_id,
+                            "start_time_ms": cursor_ms,
+                            "end_time_ms": start_ms,
+                            "score": 0.0,
+                        }]
+                    for candidate in selected_gap:
+                        segment_key = (
+                            str(candidate.get("source_video_id")),
+                            int(candidate.get("start_time_ms", 0)),
+                            int(candidate.get("end_time_ms", 0)),
+                        )
+                        self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+                    timeline.lines.append(TimelineLine(
+                        text="(Instrumental)",
+                        start_ms=cursor_ms,
+                        end_ms=start_ms,
+                        candidates=selected_gap
+                    ))
+                else:
+                    start_ms = cursor_ms
+
+            # 处理当前片段
+            if seg.get("is_non_lyric", False):
+                candidates = []
+            else:
+                search_query = seg.get("search_prompt", text)
+                candidates = await self._get_candidates(search_query, limit=20)
+
+            normalized = self._normalize_candidates(candidates, start_ms, end_ms)
+            selected_candidates = self._select_diverse_candidates(normalized, limit=3)
+
+            for candidate in selected_candidates:
+                segment_key = (
+                    str(candidate.get("source_video_id")),
+                    int(candidate.get("start_time_ms", 0)),
+                    int(candidate.get("end_time_ms", 0)),
+                )
+                self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+
+            timeline.lines.append(TimelineLine(
+                text=text,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                candidates=selected_candidates,
+            ))
+            cursor_ms = max(cursor_ms, end_ms)
+
+        # 尾部填充
+        if audio_duration_ms > cursor_ms + 1000:
+            gap_start = cursor_ms
+            gap_end = audio_duration_ms
+            outro_prompt = "ending music video, fade out, cinematic, atmospheric"
+            outro_candidates = await self._get_candidates(outro_prompt, limit=20)
+            normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
+            selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
+            if not selected_outro:
+                selected_outro = [{
+                    "id": str(uuid4()),
+                    "source_video_id": self._settings.fallback_video_id,
+                    "start_time_ms": gap_start,
+                    "end_time_ms": gap_end,
+                    "score": 0.0,
+                }]
+            timeline.lines.append(TimelineLine(
+                text="(Outro)",
+                start_ms=gap_start,
+                end_ms=gap_end,
+                candidates=selected_outro
+            ))
+
+        await report_progress(100.0)
+        return timeline
+
     async def build(
-        self, 
-        audio_path: Path | None, 
+        self,
+        audio_path: Path | None,
         lyrics_text: Optional[str],
         language: str | None = None,
-        prompt: str | None = None
+        prompt: str | None = None,
+        on_progress: ProgressCallback | None = None,
     ) -> TimelineResult:
+        """完整构建流程（兼容旧代码）：Whisper 识别 + 视频匹配。"""
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
         segments: list[dict[str, Any]] = []
         audio_duration_ms = 0
-        
+
+        async def report_progress(progress: float) -> None:
+            if on_progress:
+                await on_progress(progress)
+
         if audio_path:
+            await report_progress(5.0)  # 5%: 开始处理音频
             audio_duration_ms = self._get_audio_duration(audio_path)
             self._logger.info(
                 "timeline_builder.audio_info",
                 path=str(audio_path),
                 duration_ms=audio_duration_ms
             )
+            await report_progress(10.0)  # 10%: 开始 Whisper 识别
             raw_segments = await transcribe_with_timestamps(
-                audio_path, 
-                language=language, 
+                audio_path,
+                language=language,
                 prompt=prompt
             )
             segments = [dict(segment) for segment in raw_segments]
+            await report_progress(30.0)  # 30%: Whisper 识别完成
         elif lyrics_text:
             for idx, line in enumerate(lyrics_text.splitlines()):
                 stripped = line.strip()
@@ -279,8 +481,13 @@ class TimelineBuilder:
 
         timeline = TimelineResult()
         cursor_ms = 0
+        total_segments = len(segments)
 
-        for seg in segments:
+        for seg_idx, seg in enumerate(segments):
+            # 更新进度: 30% - 95% 对应视频匹配阶段
+            if total_segments > 0:
+                match_progress = 30.0 + (seg_idx / total_segments) * 65.0
+                await report_progress(match_progress)
             raw_text = str(seg.get("text", ""))
             text = raw_text.strip().strip("'\"")
             if not text:
@@ -438,6 +645,7 @@ class TimelineBuilder:
                 )
             )
 
+        await report_progress(100.0)  # 100%: 时间线生成完成
         return timeline
 
     def _normalize_candidates(

@@ -61,6 +61,15 @@ class LyricLine(SQLModel, table=True):
 
 
 class SongMixRequest(SQLModel, table=True):
+    """混剪任务。
+
+    timeline_status 状态流转：
+    - pending: 初始状态
+    - transcribing: Whisper 识别中
+    - transcribed: 识别完成，等待用户确认歌词
+    - matching: 视频匹配中
+    - generated: 匹配完成
+    """
     __tablename__ = "song_mix_requests"
 
     id: str = Field(primary_key=True)
@@ -71,6 +80,8 @@ class SongMixRequest(SQLModel, table=True):
     lyrics_text: str
     language: str
     timeline_status: str = Field(default="pending")
+    timeline_progress: float = Field(default=0.0)  # 时间线生成进度 0-100
+    lyrics_confirmed: bool = Field(default=False)  # 歌词是否已确认
     render_status: str = Field(default="idle")
     priority: int = Field(default=5)
     owner_id: str

@@ -133,8 +133,8 @@ async def _render_mix_impl(job_id: str) -> None:
                     "0",
                     "-i",
                     concat_file.as_posix(),
-                    "-c",
-                    "copy",
+                    "-map", "0:v",  # 只选择视频流，移除原视频音频
+                    "-c:v", "copy",
                     output_video.as_posix(),
                 ]
             )
@@ -286,9 +286,21 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
 
     inflight = 0
     peak_parallelism = 0
+    completed_count = 0
+    total_clips = len(clip_tasks)
     inflight_lock = asyncio.Lock()
     duration_lock = asyncio.Lock()
+    progress_lock = asyncio.Lock()
     durations: list[float] = []
+
+    async def update_clip_progress() -> None:
+        """更新片段下载进度: 5% - 50%"""
+        nonlocal completed_count
+        async with progress_lock:
+            completed_count += 1
+            # 进度范围: 5% 到 50%，共 45%
+            progress = 5.0 + (completed_count / total_clips) * 45.0
+            await repo.update_progress(job_id, progress)
 
     async def _worker(task: ClipDownloadTask) -> ClipDownloadResult:
         nonlocal inflight, peak_parallelism
@@ -338,6 +350,7 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
                         observe_clip_duration(duration_ms, job_id=job_id, video_id=candidate.video_id)
                         async with duration_lock:
                             durations.append(duration_ms)
+                        await update_clip_progress()  # 更新下载进度
                         logger.info(
                             "render_worker.clip_task_end",
                             clip_task_id=task.clip_task_id,
@@ -388,6 +401,7 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
             observe_clip_duration(duration_ms, job_id=job_id, video_id=task.video_id)
             async with duration_lock:
                 durations.append(duration_ms)
+            await update_clip_progress()  # 更新下载进度
             logger.info(
                 "render_worker.clip_task_end",
                 clip_task_id=task.clip_task_id,
@@ -538,13 +552,34 @@ def _calculate_alignment(lines: Iterable[RenderLine]) -> dict[str, float]:
 def _resolve_audio_path(mix: SongMixRequest | None) -> Path | None:
     if mix is None or not mix.audio_asset_id:
         return None
+
+    # 先尝试直接路径
     candidate = Path(mix.audio_asset_id)
     if candidate.exists():
         return candidate
-    fallback = Path(settings.audio_asset_dir) / mix.audio_asset_id
+
+    # 尝试在音频目录下查找
+    audio_dir = Path(settings.audio_asset_dir)
+
+    # 如果 audio_asset_id 是完整文件名（带扩展名）
+    fallback = audio_dir / mix.audio_asset_id
     if fallback.exists():
         return fallback
-    logger.warning("render_worker.audio_missing", path=mix.audio_asset_id)
+
+    # 如果 audio_asset_id 是文件名的 stem（不带扩展名），尝试各种扩展名
+    for ext in (".mp3", ".wav", ".flac", ".m4a", ".aac"):
+        fallback = audio_dir / f"{mix.audio_asset_id}{ext}"
+        if fallback.exists():
+            logger.info("render_worker.audio_resolved", path=str(fallback))
+            return fallback
+
+    # 在音频目录下搜索匹配的文件
+    for path in audio_dir.rglob("*"):
+        if path.is_file() and path.stem == mix.audio_asset_id:
+            logger.info("render_worker.audio_found_by_stem", path=str(path))
+            return path
+
+    logger.warning("render_worker.audio_missing", audio_asset_id=mix.audio_asset_id, audio_dir=str(audio_dir))
     return None
 
 
