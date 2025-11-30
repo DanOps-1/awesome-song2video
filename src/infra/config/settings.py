@@ -36,7 +36,7 @@ class AppSettings(BaseSettings):
     video_asset_dir: str = "media/video"
     audio_asset_dir: str = "media/audio"
     whisper_model_name: str = "large-v3"
-    whisper_no_speech_threshold: float = 0.8  # Whisper no_speech_prob 阈值：0.8为最佳平衡（测试验证：既保证前奏识别准确，又保持片段数多画面丰富）
+    whisper_no_speech_threshold: float = 0.9  # Whisper no_speech_prob 阈值：0.9 适配有较强背景音乐的歌曲（如《吞噬星空》等动漫主题曲）
     fallback_video_id: str = "broll"
     enable_async_queue: bool = False
     render_concurrency_limit: int = 3
