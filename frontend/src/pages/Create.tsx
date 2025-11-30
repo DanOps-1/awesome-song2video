@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { Music, Upload, ArrowLeft, Loader2, X, FileAudio } from 'lucide-react'
-import { createMix, transcribeLyrics, uploadAudio } from '@/api/mix'
+import { createMix, transcribeLyrics, importLyrics, uploadAudio } from '@/api/mix'
 
 export default function Create() {
   const navigate = useNavigate()
@@ -84,9 +84,16 @@ export default function Create() {
         lyrics_text: formData.lyrics_text || undefined,
         language: formData.language,
       })
-      // 触发歌词识别（不等待完成，让后台异步处理）
-      // 识别完成后用户可以校对歌词，确认后再匹配视频
-      transcribeLyrics(mix.id).catch(console.error)
+
+      // 根据是否提供歌词选择不同的处理方式
+      if (formData.lyrics_text && formData.lyrics_text.trim()) {
+        // 用户提供了歌词，直接导入（跳过 Whisper 识别）
+        await importLyrics(mix.id, formData.lyrics_text)
+      } else {
+        // 没有歌词，触发 Whisper 识别（异步处理）
+        transcribeLyrics(mix.id).catch(console.error)
+      }
+
       return mix
     },
     onSuccess: (mix) => {
@@ -221,7 +228,7 @@ export default function Create() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                歌词（可选）
+                歌词（可选，跳过 AI 识别）
               </label>
               <textarea
                 value={formData.lyrics_text}
@@ -231,7 +238,9 @@ export default function Create() {
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
               />
               <p className="mt-1 text-xs text-gray-500">
-                如不提供，将自动从音频识别歌词
+                {formData.lyrics_text?.trim()
+                  ? '✓ 将使用您提供的歌词，跳过 AI 识别'
+                  : '如不提供，将自动从音频识别歌词（需要几分钟）'}
               </p>
             </div>
 

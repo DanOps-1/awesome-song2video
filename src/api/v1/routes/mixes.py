@@ -146,6 +146,82 @@ async def trigger_transcription(
     return {"trace_id": trace_id, "message": "已开始歌词识别"}
 
 
+class ImportLyricsRequest(BaseModel):
+    """导入歌词请求。"""
+    lyrics_text: str = Field(..., min_length=1, description="歌词文本，每行一句")
+
+
+@router.post("/{mix_id}/import-lyrics", status_code=200)
+async def import_lyrics(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
+    payload: ImportLyricsRequest,
+) -> dict[str, str]:
+    """导入用户提供的歌词（跳过 Whisper 识别）。
+
+    将用户提供的歌词文本解析为歌词行，并根据音频时长均匀分配时间戳。
+    完成后状态变为 transcribed，等待用户确认歌词。
+    """
+    import subprocess
+    from pathlib import Path as FilePath
+    from src.domain.models.song_mix import LyricLine
+
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.timeline_status not in ("pending", "error"):
+        raise HTTPException(status_code=400, detail="任务状态不允许导入歌词")
+
+    # 解析歌词文本
+    lines_text = [line.strip() for line in payload.lyrics_text.strip().split("\n") if line.strip()]
+    if not lines_text:
+        raise HTTPException(status_code=400, detail="歌词不能为空")
+
+    # 获取音频时长
+    audio_duration_ms = 180000  # 默认 3 分钟
+    if mix.audio_asset_id:
+        audio_dir = FilePath(settings.audio_asset_dir)
+        for ext in [".mp3", ".wav", ".flac", ".m4a", ".aac"]:
+            audio_file = audio_dir / f"{mix.audio_asset_id}{ext}"
+            if audio_file.exists():
+                try:
+                    result = subprocess.run(
+                        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_file)],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        audio_duration_ms = int(float(result.stdout.strip()) * 1000)
+                except Exception:
+                    pass
+                break
+
+    # 均匀分配时间戳
+    line_duration_ms = audio_duration_ms // len(lines_text)
+    lyric_lines: list[LyricLine] = []
+
+    for index, text in enumerate(lines_text, start=1):
+        start_ms = (index - 1) * line_duration_ms
+        end_ms = index * line_duration_ms
+        lyric_lines.append(
+            LyricLine(
+                id=str(uuid4()),
+                mix_request_id=mix_id,
+                line_no=index,
+                original_text=text,
+                start_time_ms=start_ms,
+                end_time_ms=end_ms,
+                status="pending",
+            )
+        )
+
+    # 保存歌词行
+    await repo.bulk_insert_lines(lyric_lines)
+    await repo.update_timeline_status(mix_id, "transcribed")
+
+    return {"message": f"已导入 {len(lyric_lines)} 行歌词"}
+
+
 @router.patch("/{mix_id}/lines/{line_id}")
 async def update_line(
     mix_id: Annotated[str, Path(description="混剪任务 ID")],

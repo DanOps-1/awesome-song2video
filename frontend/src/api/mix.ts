@@ -75,6 +75,13 @@ export async function transcribeLyrics(mixId: string): Promise<{ trace_id: strin
   return data
 }
 
+export async function importLyrics(mixId: string, lyricsText: string): Promise<{ message: string }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/import-lyrics`, {
+    lyrics_text: lyricsText,
+  })
+  return data
+}
+
 export async function updateLine(mixId: string, lineId: string, text: string): Promise<LineInfo> {
   const { data } = await apiClient.patch(`/mixes/${mixId}/lines/${lineId}`, { text })
   return data
