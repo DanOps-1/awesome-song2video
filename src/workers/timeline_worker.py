@@ -87,13 +87,19 @@ def _resolve_audio_path(audio_asset_id: str | None) -> Path | None:
 async def transcribe_lyrics(ctx: dict | None, mix_id: str) -> None:
     """阶段1：只进行 Whisper 识别，生成歌词行供用户校对。
 
-    状态流转: pending -> transcribing -> transcribed
+    状态流转: pending/transcribed -> transcribing -> transcribed
+    支持重新识别：会自动清理旧的歌词数据。
     """
     logger.info("timeline_worker.transcribe_started", mix_id=mix_id)
     mix = await repo.get_request(mix_id)
     if mix is None:
         logger.warning("timeline_worker.mix_missing", mix_id=mix_id)
         return
+
+    # 清理旧的歌词数据（支持重新识别）
+    cleared_count = await repo.clear_lyrics(mix_id)
+    if cleared_count > 0:
+        logger.info("timeline_worker.old_lyrics_cleared", mix_id=mix_id, count=cleared_count)
 
     # 更新状态为 transcribing
     await repo.update_timeline_status(mix_id, "transcribing")

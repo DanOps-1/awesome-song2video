@@ -200,6 +200,38 @@ class SongMixRepository:
                 mix.render_status = render_status
             await session.commit()
 
+    async def clear_lyrics(self, mix_id: str) -> int:
+        """清理指定任务的所有歌词行和视频匹配数据，用于重新识别。
+
+        Returns:
+            删除的歌词行数量
+        """
+        async with get_session() as session:
+            # 先获取歌词行 ID
+            stmt = select(LyricLine).where(LyricLine.mix_request_id == mix_id)
+            result = await session.exec(stmt)
+            lines = list(result)
+            line_ids = [line.id for line in lines]
+
+            if line_ids:
+                # 删除关联的 VideoSegmentMatch
+                await session.execute(
+                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                )
+
+            # 删除 LyricLine
+            await session.execute(
+                delete(LyricLine).where(cast(Any, LyricLine.mix_request_id) == mix_id)
+            )
+
+            # 重置确认状态
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix:
+                mix.lyrics_confirmed = False
+
+            await session.commit()
+            return len(lines)
+
     async def delete_request(self, mix_id: str) -> None:
         """删除混剪任务及其关联数据。"""
         async with get_session() as session:
