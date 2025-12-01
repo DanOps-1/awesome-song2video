@@ -547,16 +547,47 @@ sqlite3 dev.db "SELECT id, timeline_status FROM song_mix_requests WHERE id='...'
 - [ ] **Redis 校验**：添加 Redis 连接健康检查和数据一致性校验
 - [ ] **非人声部分匹配乐器画面**：前奏、间奏、尾奏等非人声部分自动匹配乐器演奏画面
 
-### 基础设施
-- [ ] **MinIO 上传实现**：完成渲染视频和字幕文件上传到 MinIO 云存储（当前仅保存本地）
-- [ ] **TwelveLabs 索引状态查询**：实现真实的视频索引状态查询（当前返回 mock 数据）
-- [ ] **TwelveLabs 重索引功能**：实现视频重索引 API 调用
-- [ ] **检索后端运行时切换**：支持不重启服务动态切换检索后端（TwelveLabs/CLIP/VLM）
+### 基础设施（明确 TODO 标记）
+
+| 功能 | 文件位置 | 当前状态 |
+|------|----------|----------|
+| **MinIO 上传** | `src/workers/render_worker.py:193` | 仅打印日志，渲染产物只存本地无法分发 |
+| **TwelveLabs 索引状态查询** | `src/api/v1/routes/admin/assets.py:203` | 返回硬编码 mock 状态，非真实 API 查询 |
+| **TwelveLabs 重索引** | `src/api/v1/routes/admin/assets.py:226` | 空实现，仅返回占位响应 |
+| **检索后端运行时切换** | `src/api/v1/routes/admin/config.py:183` | 仅返回提示信息，需手动改环境变量并重启 |
+
+### 前端错误处理优化
+
+当前 `frontend/src/pages/Status.tsx` 中所有 mutation 错误处理仅为 `console.error` + `alert`：
+
+| 功能 | 行号 | 待优化 |
+|------|------|--------|
+| 更新歌词行 | 81 | 添加重试机制、详细错误展示 |
+| 确认歌词 | 93 | 添加重试机制、详细错误展示 |
+| 视频匹配 | 105 | 添加重试机制、详细错误展示 |
+| 取消确认歌词 | 118 | 添加重试机制、详细错误展示 |
+| 删除歌词行 | 132 | 添加重试机制、详细错误展示 |
+| 添加歌词行 | 149 | 添加重试机制、详细错误展示 |
+| 批量删除 | 164 | 添加重试机制、详细错误展示 |
+| 锁定视频 | 179 | 添加重试机制、详细错误展示 |
+| 提交渲染 | 191 | 添加重试机制、详细错误展示 |
+| 确认并匹配 | 307 | 添加重试机制、详细错误展示 |
+
+`frontend/src/pages/Create.tsx:84` 中 `transcribeLyrics` 为 fire-and-forget 调用，失败时用户无感知。
 
 ### 稳定性优化
-- [ ] **查询改写缓存限制**：为 QueryRewriter 缓存添加大小限制和 TTL，防止内存泄漏
-- [ ] **数据库连接重试**：添加数据库连接失败时的重试逻辑
-- [ ] **前端转录失败通知**：转录失败时向用户显示明确的错误提示
+
+| 功能 | 文件位置 | 说明 |
+|------|----------|------|
+| **查询改写缓存限制** | `src/services/matching/query_rewriter.py:22` | `_cache` 字典无大小限制和 TTL，长期运行有内存泄漏风险 |
+| **数据库连接重试** | `src/infra/persistence/database.py` | 连接失败直接抛 RuntimeError，无重试逻辑 |
+| **Redis 限流回退清理** | `src/infra/messaging/redis_pool.py:17` | `_fallback_buckets` 字典在 Redis 不可用时无限增长 |
+| **OTEL 端点配置化** | `src/infra/config/settings.py:50` | 硬编码为 `localhost:4317`，应支持环境变量配置 |
+
+### 代码质量
+
+- [ ] **异常上下文保留**：多处 `# noqa: BLE001` 捕获宽泛异常，应添加更具体的错误上下文
+- [ ] **前端错误上报**：接入错误监控服务（如 Sentry），替代 console.error
 
 ## 许可证
 
