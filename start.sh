@@ -6,6 +6,9 @@ cd "$(dirname "$0")"
 
 echo "=== 启动 Song2Video 项目 ==="
 
+# 确保日志目录存在
+mkdir -p logs
+
 # 检查端口是否被占用
 check_port() {
     if ss -tlnp | grep -q ":$1 "; then
@@ -15,8 +18,24 @@ check_port() {
     return 0
 }
 
-# 启动后端
-echo "[1/3] 启动后端 (端口 8000)..."
+# [0/5] 检查并启动 Redis
+echo "[0/5] 检查 Redis..."
+if redis-cli ping > /dev/null 2>&1; then
+    echo "✓ Redis 已运行"
+else
+    echo "Redis 未运行，正在启动..."
+    redis-server --daemonize yes --port 6379
+    sleep 2
+    if redis-cli ping > /dev/null 2>&1; then
+        echo "✓ Redis 启动成功"
+    else
+        echo "✗ Redis 启动失败，请手动检查"
+        exit 1
+    fi
+fi
+
+# [1/5] 启动后端
+echo "[1/5] 启动后端 (端口 8000)..."
 if ! check_port 8000; then
     pkill -9 -f "uvicorn.*8000" 2>/dev/null || true
     sleep 2
@@ -34,8 +53,24 @@ else
     exit 1
 fi
 
-# 启动管理后台
-echo "[2/3] 启动管理后台 (端口 6006)..."
+# [2/5] 启动 Timeline Worker（歌词识别、视频匹配）
+echo "[2/5] 启动 Timeline Worker..."
+pkill -9 -f "src.workers.timeline_worker" 2>/dev/null || true
+sleep 1
+nohup python -m src.workers.timeline_worker > logs/timeline_worker.log 2>&1 &
+TIMELINE_PID=$!
+echo "Timeline Worker PID: $TIMELINE_PID"
+
+# [3/5] 启动 Render Worker（视频渲染）
+echo "[3/5] 启动 Render Worker..."
+pkill -9 -f "src.workers.render_worker" 2>/dev/null || true
+sleep 1
+nohup python -m src.workers.render_worker > logs/render_worker.log 2>&1 &
+RENDER_PID=$!
+echo "Render Worker PID: $RENDER_PID"
+
+# [4/5] 启动管理后台
+echo "[4/5] 启动管理后台 (端口 6006)..."
 if ! check_port 6006; then
     pkill -9 -f "vite.*6006" 2>/dev/null || true
     sleep 2
@@ -46,8 +81,8 @@ ADMIN_PID=$!
 echo "管理后台 PID: $ADMIN_PID"
 cd ..
 
-# 启动用户前端
-echo "[3/3] 启动用户前端 (端口 6008)..."
+# [5/5] 启动用户前端
+echo "[5/5] 启动用户前端 (端口 6008)..."
 if ! check_port 6008; then
     pkill -9 -f "vite.*6008" 2>/dev/null || true
     sleep 2
@@ -62,12 +97,35 @@ cd ..
 sleep 10
 echo ""
 echo "=== 服务状态 ==="
+
+# 检查 Redis
+if redis-cli ping > /dev/null 2>&1; then
+    echo "✓ Redis (6379) 运行中"
+else
+    echo "✗ Redis (6379) 未运行"
+fi
+
+# 检查后端
 if ss -tlnp | grep -q ":8000 "; then
     echo "✓ 后端 (8000) 运行中"
 else
     echo "✗ 后端 (8000) 启动失败"
 fi
 
+# 检查 Workers
+if pgrep -f "src.workers.timeline_worker" > /dev/null; then
+    echo "✓ Timeline Worker 运行中"
+else
+    echo "✗ Timeline Worker 未运行"
+fi
+
+if pgrep -f "src.workers.render_worker" > /dev/null; then
+    echo "✓ Render Worker 运行中"
+else
+    echo "✗ Render Worker 未运行"
+fi
+
+# 检查前端
 if ss -tlnp | grep -q ":6006 "; then
     echo "✓ 管理后台 (6006) 运行中"
 else
@@ -88,6 +146,8 @@ echo "用户前端:  http://localhost:6008"
 echo "API文档:   http://localhost:8000/docs"
 echo ""
 echo "查看日志:"
-echo "  后端:     tail -f logs/backend.log"
-echo "  管理后台: tail -f logs/admin.log"
-echo "  用户前端: tail -f logs/frontend.log"
+echo "  后端:           tail -f logs/backend.log"
+echo "  Timeline Worker: tail -f logs/timeline_worker.log"
+echo "  Render Worker:   tail -f logs/render_worker.log"
+echo "  管理后台:       tail -f logs/admin.log"
+echo "  用户前端:       tail -f logs/frontend.log"
