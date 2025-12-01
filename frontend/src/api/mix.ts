@@ -92,6 +92,11 @@ export async function confirmLyrics(mixId: string): Promise<{ message: string }>
   return data
 }
 
+export async function unconfirmLyrics(mixId: string): Promise<{ message: string }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/unconfirm-lyrics`)
+  return data
+}
+
 export async function matchVideos(mixId: string): Promise<{ trace_id: string; message: string }> {
   const { data } = await apiClient.post(`/mixes/${mixId}/match-videos`)
   return data
@@ -158,6 +163,11 @@ export async function uploadAudio(file: File): Promise<UploadResponse> {
 
 export async function deleteLine(mixId: string, lineId: string): Promise<{ message: string }> {
   const { data } = await apiClient.delete(`/mixes/${mixId}/lines/${lineId}`)
+  return data
+}
+
+export async function deleteLinesBatch(mixId: string, lineIds: string[]): Promise<{ message: string; deleted_count: number }> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/lines/batch-delete`, { line_ids: lineIds })
   return data
 }
 

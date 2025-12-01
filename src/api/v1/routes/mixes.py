@@ -72,6 +72,11 @@ class AddLineRequest(BaseModel):
     end_time_ms: int = Field(..., ge=0, description="结束时间（毫秒）")
 
 
+class DeleteLinesRequest(BaseModel):
+    """批量删除歌词行请求。"""
+    line_ids: list[str] = Field(..., min_length=1, description="要删除的歌词行 ID 列表")
+
+
 @router.post("", status_code=201, response_model=MixResponse)
 async def create_mix(payload: MixCreateRequest) -> MixResponse:
     # 手动模式必须提供歌词，其他模式必须提供音频
@@ -342,6 +347,32 @@ async def delete_line(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/{mix_id}/lines/batch-delete", status_code=200)
+async def delete_lines_batch(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
+    payload: DeleteLinesRequest,
+) -> dict[str, str | int]:
+    """批量删除歌词行。
+
+    仅在歌词校对阶段（transcribed 状态且未确认）可用。
+    """
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.lyrics_confirmed:
+        raise HTTPException(status_code=400, detail="歌词已确认，无法删除")
+
+    if mix.timeline_status not in ("transcribed", "pending"):
+        raise HTTPException(status_code=400, detail="当前状态不允许删除歌词")
+
+    try:
+        _, deleted_count = await repo.delete_lines_batch(payload.line_ids)
+        return {"message": f"已删除 {deleted_count} 行歌词", "deleted_count": deleted_count}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/{mix_id}/confirm-lyrics", status_code=200)
 async def confirm_lyrics(
     mix_id: Annotated[str, Path(description="混剪任务 ID")]
@@ -362,6 +393,28 @@ async def confirm_lyrics(
 
     await repo.confirm_lyrics(mix_id)
     return {"message": "歌词已确认"}
+
+
+@router.post("/{mix_id}/unconfirm-lyrics", status_code=200)
+async def unconfirm_lyrics(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")]
+) -> dict[str, str]:
+    """取消确认歌词，返回歌词编辑状态。
+
+    会清除已匹配的视频候选，允许重新编辑歌词。
+    """
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.render_status == "running":
+        raise HTTPException(status_code=400, detail="渲染进行中，无法修改")
+
+    if mix.render_status == "success":
+        raise HTTPException(status_code=400, detail="视频已生成，无法修改")
+
+    await repo.unconfirm_lyrics(mix_id)
+    return {"message": "已返回歌词编辑状态"}
 
 
 @router.post("/{mix_id}/match-videos", status_code=202)

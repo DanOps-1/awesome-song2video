@@ -179,6 +179,42 @@ class SongMixRepository:
             mix.lyrics_confirmed = True
             await session.commit()
 
+    async def unconfirm_lyrics(self, mix_id: str) -> None:
+        """取消确认歌词，返回歌词编辑状态。
+
+        - 重置 lyrics_confirmed 为 False
+        - 重置 timeline_status 为 transcribed
+        - 清除所有歌词行的视频候选和锁定状态
+        """
+        async with get_session() as session:
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix is None:
+                raise ValueError("mix not found")
+
+            # 重置状态
+            mix.lyrics_confirmed = False
+            mix.timeline_status = "transcribed"
+            mix.timeline_progress = 0.0
+
+            # 获取所有歌词行
+            stmt = select(LyricLine).where(LyricLine.mix_request_id == mix_id)
+            result = await session.exec(stmt)
+            lines = list(result)
+            line_ids = [line.id for line in lines]
+
+            # 清除视频候选
+            if line_ids:
+                await session.execute(
+                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                )
+
+            # 重置歌词行状态
+            for line in lines:
+                line.status = "pending"
+                line.selected_segment_id = None
+
+            await session.commit()
+
     async def list_requests(self) -> list[SongMixRequest]:
         """获取所有混剪任务列表。"""
         async with get_session() as session:
@@ -287,6 +323,49 @@ class SongMixRepository:
 
             await session.commit()
             return mix_id
+
+    async def delete_lines_batch(self, line_ids: list[str]) -> tuple[str, int]:
+        """批量删除歌词行及其关联的视频匹配。
+
+        Args:
+            line_ids: 要删除的歌词行 ID 列表
+
+        Returns:
+            (mix_id, 删除数量)
+        """
+        if not line_ids:
+            raise ValueError("请选择要删除的歌词行")
+
+        async with get_session() as session:
+            # 获取第一个行以确定 mix_id
+            first_line = await session.get(LyricLine, line_ids[0])
+            if first_line is None:
+                raise ValueError("歌词行不存在")
+            mix_id = first_line.mix_request_id
+
+            # 删除关联的 VideoSegmentMatch
+            await session.execute(
+                delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+            )
+
+            # 删除歌词行
+            await session.execute(
+                delete(LyricLine).where(cast(Any, LyricLine.id).in_(line_ids))
+            )
+
+            # 重新排序所有剩余行号
+            stmt = (
+                select(LyricLine)
+                .where(LyricLine.mix_request_id == mix_id)
+                .order_by(cast(Any, LyricLine.start_time_ms))
+            )
+            result = await session.exec(stmt)
+            remaining_lines = list(result)
+            for idx, line in enumerate(remaining_lines, start=1):
+                line.line_no = idx
+
+            await session.commit()
+            return mix_id, len(line_ids)
 
     async def add_line(
         self,
