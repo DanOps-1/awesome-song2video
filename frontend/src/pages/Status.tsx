@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, CheckCircle, Play, RefreshCw, AlertCircle, Edit3, Check, X } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle, Play, RefreshCw, AlertCircle, Edit3, Check, X, Trash2, Plus } from 'lucide-react'
 import { useState } from 'react'
 import {
   getLines,
@@ -11,6 +11,8 @@ import {
   updateLine,
   confirmLyrics,
   matchVideos,
+  deleteLine,
+  addLine,
 } from '@/api/mix'
 
 export default function Status() {
@@ -21,6 +23,12 @@ export default function Status() {
   // 编辑状态
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
+
+  // 新增歌词表单状态
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newLyricText, setNewLyricText] = useState('')
+  const [newLyricStartSec, setNewLyricStartSec] = useState('')
+  const [newLyricEndSec, setNewLyricEndSec] = useState('')
 
   // 获取混剪任务状态（包含时间线进度和歌词行）
   const { data: mixData, isLoading: mixLoading } = useQuery({
@@ -93,6 +101,35 @@ export default function Status() {
     },
   })
 
+  // 删除歌词行
+  const deleteLineMutation = useMutation({
+    mutationFn: (lineId: string) => deleteLine(mixId!, lineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mix', mixId] })
+    },
+    onError: (error) => {
+      console.error('Delete line failed:', error)
+      alert('删除失败，请重试')
+    },
+  })
+
+  // 添加歌词行
+  const addLineMutation = useMutation({
+    mutationFn: (payload: { text: string; start_time_ms: number; end_time_ms: number }) =>
+      addLine(mixId!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mix', mixId] })
+      setShowAddForm(false)
+      setNewLyricText('')
+      setNewLyricStartSec('')
+      setNewLyricEndSec('')
+    },
+    onError: (error) => {
+      console.error('Add line failed:', error)
+      alert('添加失败，请重试')
+    },
+  })
+
   const lockMutation = useMutation({
     mutationFn: async ({ lineId, segmentId }: { lineId: string; segmentId: string }) => {
       return await lockLine(mixId!, lineId, segmentId)
@@ -153,6 +190,38 @@ export default function Status() {
   const cancelEdit = () => {
     setEditingLineId(null)
     setEditText('')
+  }
+
+  // 删除歌词行
+  const handleDeleteLine = (lineId: string, text: string) => {
+    if (confirm(`确定要删除这句歌词吗？\n"${text}"`)) {
+      deleteLineMutation.mutate(lineId)
+    }
+  }
+
+  // 提交新增歌词
+  const handleAddLine = () => {
+    const startMs = Math.round(parseFloat(newLyricStartSec) * 1000)
+    const endMs = Math.round(parseFloat(newLyricEndSec) * 1000)
+
+    if (!newLyricText.trim()) {
+      alert('请输入歌词内容')
+      return
+    }
+    if (isNaN(startMs) || isNaN(endMs)) {
+      alert('请输入有效的时间')
+      return
+    }
+    if (endMs <= startMs) {
+      alert('结束时间必须大于开始时间')
+      return
+    }
+
+    addLineMutation.mutate({
+      text: newLyricText.trim(),
+      start_time_ms: startMs,
+      end_time_ms: endMs,
+    })
   }
 
   // 确认歌词并开始匹配
@@ -352,10 +421,98 @@ export default function Status() {
                           {(line.start_time_ms / 1000).toFixed(1)}s - {(line.end_time_ms / 1000).toFixed(1)}s
                         </p>
                       </div>
+                      {/* 删除按钮 */}
+                      <button
+                        onClick={() => handleDeleteLine(line.id, line.original_text)}
+                        disabled={deleteLineMutation.isPending}
+                        className="flex-shrink-0 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                        title="删除此行"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   ))
                 )}
               </div>
+
+              {/* 新增歌词区域 */}
+              <div className="p-4 border-t border-gray-100">
+                {showAddForm ? (
+                  <div className="bg-purple-50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-purple-900">添加新歌词</h4>
+                      <button
+                        onClick={() => setShowAddForm(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="输入歌词内容"
+                      value={newLyricText}
+                      onChange={(e) => setNewLyricText(e.target.value)}
+                      className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 mb-1 block">开始时间 (秒)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="如: 26.5"
+                          value={newLyricStartSec}
+                          onChange={(e) => setNewLyricStartSec(e.target.value)}
+                          className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-gray-500 mb-1 block">结束时间 (秒)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="如: 28.0"
+                          value={newLyricEndSec}
+                          onChange={(e) => setNewLyricEndSec(e.target.value)}
+                          className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => setShowAddForm(false)}
+                        className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                      >
+                        取消
+                      </button>
+                      <button
+                        onClick={handleAddLine}
+                        disabled={addLineMutation.isPending}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {addLineMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            添加中...
+                          </>
+                        ) : (
+                          '确认添加'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowAddForm(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-purple-300 text-purple-600 rounded-lg hover:bg-purple-50 hover:border-purple-400 transition-colors"
+                  >
+                    <Plus className="w-5 h-5" />
+                    添加歌词
+                  </button>
+                )}
+              </div>
+
               <div className="p-6 bg-gray-50">
                 <button
                   onClick={handleConfirmAndMatch}

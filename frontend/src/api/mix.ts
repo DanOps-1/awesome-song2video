@@ -155,3 +155,19 @@ export async function uploadAudio(file: File): Promise<UploadResponse> {
   })
   return data
 }
+
+export async function deleteLine(mixId: string, lineId: string): Promise<{ message: string }> {
+  const { data } = await apiClient.delete(`/mixes/${mixId}/lines/${lineId}`)
+  return data
+}
+
+export interface AddLineRequest {
+  text: string
+  start_time_ms: number
+  end_time_ms: number
+}
+
+export async function addLine(mixId: string, payload: AddLineRequest): Promise<LineInfo> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/lines`, payload)
+  return data
+}

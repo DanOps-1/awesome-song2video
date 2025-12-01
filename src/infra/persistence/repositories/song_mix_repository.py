@@ -251,3 +251,104 @@ class SongMixRepository:
             if mix:
                 await session.delete(mix)
             await session.commit()
+
+    async def delete_line(self, line_id: str) -> str:
+        """删除单个歌词行及其关联的视频匹配。
+
+        Returns:
+            被删除行所属的 mix_id
+        """
+        async with get_session() as session:
+            line = await session.get(LyricLine, line_id)
+            if line is None:
+                raise ValueError("歌词行不存在")
+
+            mix_id = line.mix_request_id
+            deleted_line_no = line.line_no
+
+            # 删除关联的 VideoSegmentMatch
+            await session.execute(
+                delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id) == line_id)
+            )
+
+            # 删除歌词行
+            await session.delete(line)
+
+            # 重新排序后续行号
+            stmt = (
+                select(LyricLine)
+                .where(LyricLine.mix_request_id == mix_id)
+                .where(cast(Any, LyricLine.line_no) > deleted_line_no)
+                .order_by(cast(Any, LyricLine.line_no))
+            )
+            result = await session.exec(stmt)
+            for remaining_line in result:
+                remaining_line.line_no -= 1
+
+            await session.commit()
+            return mix_id
+
+    async def add_line(
+        self,
+        mix_id: str,
+        text: str,
+        start_time_ms: int,
+        end_time_ms: int,
+    ) -> LyricLine:
+        """添加新的歌词行，根据时间自动排序到正确位置。
+
+        Args:
+            mix_id: 混剪任务 ID
+            text: 歌词文本
+            start_time_ms: 开始时间（毫秒）
+            end_time_ms: 结束时间（毫秒）
+
+        Returns:
+            新创建的歌词行
+        """
+        from uuid import uuid4
+
+        async with get_session() as session:
+            # 验证 mix 存在
+            mix = await session.get(SongMixRequest, mix_id)
+            if mix is None:
+                raise ValueError("任务不存在")
+
+            # 获取现有行，按时间排序
+            stmt = (
+                select(LyricLine)
+                .where(LyricLine.mix_request_id == mix_id)
+                .order_by(cast(Any, LyricLine.start_time_ms))
+            )
+            result = await session.exec(stmt)
+            existing_lines = list(result)
+
+            # 根据 start_time_ms 找到插入位置
+            insert_index = 0
+            for i, line in enumerate(existing_lines):
+                if line.start_time_ms <= start_time_ms:
+                    insert_index = i + 1
+                else:
+                    break
+
+            # 新行的行号
+            new_line_no = insert_index + 1
+
+            # 将插入位置及之后的行号后移
+            for line in existing_lines[insert_index:]:
+                line.line_no += 1
+
+            # 创建新行
+            new_line = LyricLine(
+                id=str(uuid4()),
+                mix_request_id=mix_id,
+                line_no=new_line_no,
+                original_text=text,
+                start_time_ms=start_time_ms,
+                end_time_ms=end_time_ms,
+                status="pending",
+            )
+            session.add(new_line)
+            await session.commit()
+            await session.refresh(new_line)
+            return new_line

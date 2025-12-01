@@ -65,6 +65,13 @@ class UpdateLineRequest(BaseModel):
     selected_segment_id: str | None = None
 
 
+class AddLineRequest(BaseModel):
+    """添加歌词行请求。"""
+    text: str = Field(..., min_length=1, max_length=500, description="歌词文本")
+    start_time_ms: int = Field(..., ge=0, description="开始时间（毫秒）")
+    end_time_ms: int = Field(..., ge=0, description="结束时间（毫秒）")
+
+
 @router.post("", status_code=201, response_model=MixResponse)
 async def create_mix(payload: MixCreateRequest) -> MixResponse:
     # 手动模式必须提供歌词，其他模式必须提供音频
@@ -266,6 +273,73 @@ async def update_line(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e) or "歌词行不存在")
+
+
+@router.post("/{mix_id}/lines", status_code=201, response_model=LyricLineResponse)
+async def add_line(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
+    payload: AddLineRequest,
+) -> LyricLineResponse:
+    """添加新的歌词行，根据时间自动排序到正确位置。
+
+    仅在歌词校对阶段（transcribed 状态且未确认）可用。
+    """
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.lyrics_confirmed:
+        raise HTTPException(status_code=400, detail="歌词已确认，无法添加")
+
+    if mix.timeline_status not in ("transcribed", "pending"):
+        raise HTTPException(status_code=400, detail="当前状态不允许添加歌词")
+
+    if payload.end_time_ms <= payload.start_time_ms:
+        raise HTTPException(status_code=400, detail="结束时间必须大于开始时间")
+
+    try:
+        line = await repo.add_line(
+            mix_id=mix_id,
+            text=payload.text,
+            start_time_ms=payload.start_time_ms,
+            end_time_ms=payload.end_time_ms,
+        )
+        return LyricLineResponse(
+            id=line.id,
+            line_no=line.line_no,
+            original_text=line.original_text,
+            start_time_ms=line.start_time_ms,
+            end_time_ms=line.end_time_ms,
+            status=line.status,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{mix_id}/lines/{line_id}", status_code=200)
+async def delete_line(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
+    line_id: Annotated[str, Path(description="歌词行 ID")],
+) -> dict[str, str]:
+    """删除歌词行。
+
+    仅在歌词校对阶段（transcribed 状态且未确认）可用。
+    """
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.lyrics_confirmed:
+        raise HTTPException(status_code=400, detail="歌词已确认，无法删除")
+
+    if mix.timeline_status not in ("transcribed", "pending"):
+        raise HTTPException(status_code=400, detail="当前状态不允许删除歌词")
+
+    try:
+        await repo.delete_line(line_id)
+        return {"message": "歌词行已删除"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/{mix_id}/confirm-lyrics", status_code=200)
