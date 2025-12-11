@@ -20,13 +20,17 @@ class FakeScheduler:
         success_path = success_task.target_path
         success_path.write_text("clip")
         return [
-            ClipDownloadResult(task=success_task, status="success", path=success_path, duration_ms=10),
+            ClipDownloadResult(
+                task=success_task, status="success", path=success_path, duration_ms=10
+            ),
             ClipDownloadResult(task=failed_task, status="failed", path=None),
         ]
 
 
 @pytest.mark.asyncio
-async def test_extract_clips_inserts_placeholder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_extract_clips_inserts_placeholder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     lines = [
         render_worker.RenderLine(
             source_video_id="v1",
@@ -47,7 +51,11 @@ async def test_extract_clips_inserts_placeholder(monkeypatch: pytest.MonkeyPatch
     ]
 
     monkeypatch.setattr(render_worker, "RenderClipScheduler", FakeScheduler)
-    monkeypatch.setattr(render_worker, "write_placeholder_clip", lambda target, duration: target.write_text("placeholder"))
+    monkeypatch.setattr(
+        render_worker,
+        "write_placeholder_clip",
+        lambda target, duration: target.write_text("placeholder"),
+    )
 
     clips, stats = await render_worker._extract_clips(lines, "job-test", tmp_path)
 

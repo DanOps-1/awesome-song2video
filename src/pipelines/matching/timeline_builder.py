@@ -90,28 +90,28 @@ class TimelineBuilder:
 
         # 中文 credits 模式
         non_lyric_patterns = [
-            r'^作词[\s:：]',
-            r'^词[\s:：]',
-            r'^作曲[\s:：]',
-            r'^曲[\s:：]',
-            r'^编曲[\s:：]',
-            r'^编[\s:：]',
-            r'^演唱[\s:：]',
-            r'^唱[\s:：]',
-            r'^制作[\s:：]',
-            r'^监制[\s:：]',
-            r'^混音[\s:：]',
-            r'^母带[\s:：]',
+            r"^作词[\s:：]",
+            r"^词[\s:：]",
+            r"^作曲[\s:：]",
+            r"^曲[\s:：]",
+            r"^编曲[\s:：]",
+            r"^编[\s:：]",
+            r"^演唱[\s:：]",
+            r"^唱[\s:：]",
+            r"^制作[\s:：]",
+            r"^监制[\s:：]",
+            r"^混音[\s:：]",
+            r"^母带[\s:：]",
         ]
 
         # 英文 credits 模式
         english_patterns = [
-            r'(?i)^lyrics\s+by',
-            r'(?i)^music\s+by',
-            r'(?i)^composed\s+by',
-            r'(?i)^arranged\s+by',
-            r'(?i)^performed\s+by',
-            r'(?i)^produced\s+by',
+            r"(?i)^lyrics\s+by",
+            r"(?i)^music\s+by",
+            r"(?i)^composed\s+by",
+            r"(?i)^arranged\s+by",
+            r"(?i)^performed\s+by",
+            r"(?i)^produced\s+by",
         ]
 
         all_patterns = non_lyric_patterns + english_patterns
@@ -128,9 +128,12 @@ class TimelineBuilder:
 
         cmd = [
             "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             audio_path.as_posix(),
         ]
         try:
@@ -148,43 +151,45 @@ class TimelineBuilder:
             self._logger.warning("ffprobe.audio_duration_failed", path=audio_path, error=str(exc))
         return 0
 
-    def _split_by_duration(self, segments: list[dict[str, Any]], max_duration: float = 12.0) -> list[dict[str, Any]]:
+    def _split_by_duration(
+        self, segments: list[dict[str, Any]], max_duration: float = 12.0
+    ) -> list[dict[str, Any]]:
         """将过长的片段按时长切分为更小的片段，以增加画面丰富度。"""
         split_segments: list[dict[str, Any]] = []
         for seg in segments:
             start = float(seg.get("start", 0))
             end = float(seg.get("end", 0))
             duration = end - start
-            
+
             if duration <= max_duration:
                 split_segments.append(seg)
                 continue
-                
+
             # 计算需要切分的块数
             num_chunks = int(duration // max_duration) + 1
             chunk_duration = duration / num_chunks
-            
+
             text = seg.get("text", "")
             base_prompt = seg.get("search_prompt", "")
-            
+
             for i in range(num_chunks):
                 chunk_start = start + (i * chunk_duration)
                 chunk_end = chunk_start + chunk_duration
-                
+
                 # 创建新片段，复制元数据
                 new_seg = seg.copy()
                 new_seg["start"] = chunk_start
                 new_seg["end"] = chunk_end
-                
+
                 # 如果有搜索提示词，添加变化以增加多样性
                 if base_prompt:
-                    new_seg["search_prompt"] = f"{base_prompt}, scene {i+1}"
-                
+                    new_seg["search_prompt"] = f"{base_prompt}, scene {i + 1}"
+
                 # 对于长文本（如 Credits），后续片段可以不再显示文本，或者保留
                 # 这里为了简单，保留文本，但画面会变
-                
+
                 split_segments.append(new_seg)
-                
+
             self._logger.info(
                 "timeline_builder.split_long_segment",
                 original_text=text[:20],
@@ -192,7 +197,7 @@ class TimelineBuilder:
                 chunks=num_chunks,
                 message="长片段已切分",
             )
-            
+
         return split_segments
 
     async def transcribe_only(
@@ -206,6 +211,7 @@ class TimelineBuilder:
 
         返回格式: [{"text": "歌词", "start": 开始秒, "end": 结束秒}, ...]
         """
+
         async def report_progress(progress: float) -> None:
             if on_progress:
                 await on_progress(progress)
@@ -213,16 +219,12 @@ class TimelineBuilder:
         await report_progress(5.0)  # 5%: 开始处理音频
         audio_duration_ms = self._get_audio_duration(audio_path)
         self._logger.info(
-            "timeline_builder.audio_info",
-            path=str(audio_path),
-            duration_ms=audio_duration_ms
+            "timeline_builder.audio_info", path=str(audio_path), duration_ms=audio_duration_ms
         )
         await report_progress(20.0)  # 20%: 开始 Whisper 识别
 
         raw_segments = await transcribe_with_timestamps(
-            audio_path,
-            language=language,
-            prompt=prompt
+            audio_path, language=language, prompt=prompt
         )
         segments = [dict(segment) for segment in raw_segments]
 
@@ -259,11 +261,13 @@ class TimelineBuilder:
         # 转换为内部 segments 格式
         segments: list[dict[str, Any]] = []
         for line in lines:
-            segments.append({
-                "text": line["text"],
-                "start": line["start_ms"] / 1000.0,
-                "end": line["end_ms"] / 1000.0,
-            })
+            segments.append(
+                {
+                    "text": line["text"],
+                    "start": line["start_ms"] / 1000.0,
+                    "end": line["end_ms"] / 1000.0,
+                }
+            )
 
         # 标记非歌词内容
         for seg in segments:
@@ -305,31 +309,39 @@ class TimelineBuilder:
             if cursor_ms > 0 and start_ms > cursor_ms:
                 gap = start_ms - cursor_ms
                 if gap > 2000:
-                    gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                    gap_prompt = (
+                        "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                    )
                     gap_candidates = await self._get_candidates(gap_prompt, limit=20)
                     normalized_gap = self._normalize_candidates(gap_candidates, cursor_ms, start_ms)
                     selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
                     if not selected_gap:
-                        selected_gap = [{
-                            "id": str(uuid4()),
-                            "source_video_id": self._settings.fallback_video_id,
-                            "start_time_ms": cursor_ms,
-                            "end_time_ms": start_ms,
-                            "score": 0.0,
-                        }]
+                        selected_gap = [
+                            {
+                                "id": str(uuid4()),
+                                "source_video_id": self._settings.fallback_video_id,
+                                "start_time_ms": cursor_ms,
+                                "end_time_ms": start_ms,
+                                "score": 0.0,
+                            }
+                        ]
                     for candidate in selected_gap:
                         segment_key = (
                             str(candidate.get("source_video_id")),
                             int(candidate.get("start_time_ms", 0)),
                             int(candidate.get("end_time_ms", 0)),
                         )
-                        self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
-                    timeline.lines.append(TimelineLine(
-                        text="(Instrumental)",
-                        start_ms=cursor_ms,
-                        end_ms=start_ms,
-                        candidates=selected_gap
-                    ))
+                        self._used_segments[segment_key] = (
+                            self._used_segments.get(segment_key, 0) + 1
+                        )
+                    timeline.lines.append(
+                        TimelineLine(
+                            text="(Instrumental)",
+                            start_ms=cursor_ms,
+                            end_ms=start_ms,
+                            candidates=selected_gap,
+                        )
+                    )
                 else:
                     start_ms = cursor_ms
 
@@ -351,12 +363,14 @@ class TimelineBuilder:
                 )
                 self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
 
-            timeline.lines.append(TimelineLine(
-                text=text,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                candidates=selected_candidates,
-            ))
+            timeline.lines.append(
+                TimelineLine(
+                    text=text,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    candidates=selected_candidates,
+                )
+            )
             cursor_ms = max(cursor_ms, end_ms)
 
         # 尾部填充
@@ -368,19 +382,20 @@ class TimelineBuilder:
             normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
             selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
             if not selected_outro:
-                selected_outro = [{
-                    "id": str(uuid4()),
-                    "source_video_id": self._settings.fallback_video_id,
-                    "start_time_ms": gap_start,
-                    "end_time_ms": gap_end,
-                    "score": 0.0,
-                }]
-            timeline.lines.append(TimelineLine(
-                text="(Outro)",
-                start_ms=gap_start,
-                end_ms=gap_end,
-                candidates=selected_outro
-            ))
+                selected_outro = [
+                    {
+                        "id": str(uuid4()),
+                        "source_video_id": self._settings.fallback_video_id,
+                        "start_time_ms": gap_start,
+                        "end_time_ms": gap_end,
+                        "score": 0.0,
+                    }
+                ]
+            timeline.lines.append(
+                TimelineLine(
+                    text="(Outro)", start_ms=gap_start, end_ms=gap_end, candidates=selected_outro
+                )
+            )
 
         await report_progress(100.0)
         return timeline
@@ -407,15 +422,11 @@ class TimelineBuilder:
             await report_progress(5.0)  # 5%: 开始处理音频
             audio_duration_ms = self._get_audio_duration(audio_path)
             self._logger.info(
-                "timeline_builder.audio_info",
-                path=str(audio_path),
-                duration_ms=audio_duration_ms
+                "timeline_builder.audio_info", path=str(audio_path), duration_ms=audio_duration_ms
             )
             await report_progress(10.0)  # 10%: 开始 Whisper 识别
             raw_segments = await transcribe_with_timestamps(
-                audio_path,
-                language=language,
-                prompt=prompt
+                audio_path, language=language, prompt=prompt
             )
             segments = [dict(segment) for segment in raw_segments]
             await report_progress(30.0)  # 30%: Whisper 识别完成
@@ -429,7 +440,7 @@ class TimelineBuilder:
             raise ValueError("必须提供音频或歌词")
 
         segments = self._explode_segments(segments)
-        
+
         # 标记非歌词内容（作词、作曲等 credits）
         # 策略更新：
         # 1. 短的 credits (< 10s) -> 标记为 non-lyric，使用 fallback
@@ -471,11 +482,11 @@ class TimelineBuilder:
                 lyric_count=len(segments) - non_lyric_count,
                 message=f"发现 {non_lyric_count} 个短非歌词片段",
             )
-            
+
         # 在排序前进行时长切分
         # 这会将 30s 的 Intro 切分为 3 个 10s 的片段，每个都会进行独立的视频搜索
         segments = self._split_by_duration(segments, max_duration=12.0)
-        
+
         # 按开始时间排序，确保时间线连续性
         segments.sort(key=lambda x: float(x.get("start", 0)))
 
@@ -505,7 +516,7 @@ class TimelineBuilder:
             if cursor_ms > 0:  # 只有非第一句才需要处理间隙（第一句前面是0）
                 if start_ms > cursor_ms:
                     gap = start_ms - cursor_ms
-                    
+
                     # 策略 1: 大间隙 -> 插入间奏片段
                     if gap > 2000:
                         self._logger.info(
@@ -515,22 +526,28 @@ class TimelineBuilder:
                             duration=gap,
                             message="发现大间隙，插入纯音乐画面",
                         )
-                        
+
                         # 搜索纯音乐画面
-                        gap_prompt = "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                        gap_prompt = (
+                            "atmospheric music video, cinematic scenes, instrumental, no lyrics"
+                        )
                         gap_candidates = await self._get_candidates(gap_prompt, limit=20)
-                        normalized_gap = self._normalize_candidates(gap_candidates, cursor_ms, start_ms)
+                        normalized_gap = self._normalize_candidates(
+                            gap_candidates, cursor_ms, start_ms
+                        )
                         selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
-                        
+
                         # 兜底
                         if not selected_gap:
-                            selected_gap = [{
-                                "id": str(uuid4()),
-                                "source_video_id": self._settings.fallback_video_id,
-                                "start_time_ms": cursor_ms,
-                                "end_time_ms": start_ms,
-                                "score": 0.0,
-                            }]
+                            selected_gap = [
+                                {
+                                    "id": str(uuid4()),
+                                    "source_video_id": self._settings.fallback_video_id,
+                                    "start_time_ms": cursor_ms,
+                                    "end_time_ms": start_ms,
+                                    "score": 0.0,
+                                }
+                            ]
 
                         # 标记已使用
                         for candidate in selected_gap:
@@ -539,17 +556,19 @@ class TimelineBuilder:
                                 int(candidate.get("start_time_ms", 0)),
                                 int(candidate.get("end_time_ms", 0)),
                             )
-                            self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
+                            self._used_segments[segment_key] = (
+                                self._used_segments.get(segment_key, 0) + 1
+                            )
 
                         timeline.lines.append(
                             TimelineLine(
                                 text="(Instrumental)",
                                 start_ms=cursor_ms,
                                 end_ms=start_ms,
-                                candidates=selected_gap
+                                candidates=selected_gap,
                             )
                         )
-                    
+
                     # 策略 2: 小间隙 -> 吸收（向前延伸当前片段）
                     else:
                         self._logger.info(
@@ -593,7 +612,7 @@ class TimelineBuilder:
                 )
             )
             cursor_ms = max(cursor_ms, end_ms)
-            
+
         # 🎵 尾部填充逻辑 (Tail Gap Filling)
         self._logger.info(
             "timeline_builder.check_tail_gap",
@@ -601,9 +620,9 @@ class TimelineBuilder:
             cursor_ms=cursor_ms,
             gap=audio_duration_ms - cursor_ms,
             threshold=1000,
-            should_fill=audio_duration_ms > cursor_ms + 1000
+            should_fill=audio_duration_ms > cursor_ms + 1000,
         )
-        
+
         if audio_duration_ms > cursor_ms + 1000:
             gap_start = cursor_ms
             gap_end = audio_duration_ms
@@ -614,12 +633,12 @@ class TimelineBuilder:
                 duration=gap_end - gap_start,
                 message="填充尾部空隙",
             )
-            
+
             outro_prompt = "ending music video, fade out, cinematic, atmospheric"
             outro_candidates = await self._get_candidates(outro_prompt, limit=20)
             normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
             selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
-            
+
             # 如果因为重叠等原因没有选到候选，强制使用 fallback
             if not selected_outro:
                 self._logger.warning(
@@ -628,20 +647,19 @@ class TimelineBuilder:
                     gap_end=gap_end,
                     message="Outro 搜索无可用候选，使用 Fallback",
                 )
-                selected_outro = [{
-                    "id": str(uuid4()),
-                    "source_video_id": self._settings.fallback_video_id,
-                    "start_time_ms": gap_start,
-                    "end_time_ms": gap_end,
-                    "score": 0.0,
-                }]
+                selected_outro = [
+                    {
+                        "id": str(uuid4()),
+                        "source_video_id": self._settings.fallback_video_id,
+                        "start_time_ms": gap_start,
+                        "end_time_ms": gap_end,
+                        "score": 0.0,
+                    }
+                ]
 
             timeline.lines.append(
                 TimelineLine(
-                    text="(Outro)",
-                    start_ms=gap_start,
-                    end_ms=gap_end,
-                    candidates=selected_outro
+                    text="(Outro)", start_ms=gap_start, end_ms=gap_end, candidates=selected_outro
                 )
             )
 
@@ -662,7 +680,9 @@ class TimelineBuilder:
         lyric_duration_ms = end_ms - start_ms
         lyric_duration_s = lyric_duration_ms / 1000.0
 
-        def _candidate_defaults(candidate: dict[str, int | float | str]) -> dict[str, int | float | str] | None:
+        def _candidate_defaults(
+            candidate: dict[str, int | float | str],
+        ) -> dict[str, int | float | str] | None:
             # 🔧 修复: 从 API 返回片段的中间位置截取，以获得最匹配的画面
             # 原因：AI 匹配的精彩画面往往在片段中间，而不是开头
             api_start = int(candidate.get("start", start_ms))
@@ -713,8 +733,8 @@ class TimelineBuilder:
             return {
                 "id": str(uuid4()),
                 "source_video_id": candidate.get("video_id", self._settings.fallback_video_id),
-                "start_time_ms": clip_start,              # 从中间位置开始截取
-                "end_time_ms": clip_end,                  # 保持歌词时长
+                "start_time_ms": clip_start,  # 从中间位置开始截取
+                "end_time_ms": clip_end,  # 保持歌词时长
                 "score": candidate.get("score", 0.0),
                 # 保留原始数据供参考
                 "api_start_ms": api_start,
@@ -934,11 +954,13 @@ class TimelineBuilder:
                 continue
 
             # 通过所有检查，加入有效候选列表
-            valid_candidates.append({
-                "candidate": candidate,
-                "usage_count": 0,  # 肯定是 0，因为已经过滤掉了 > 0 的
-                "score": float(candidate.get("score", 0.0)),
-            })
+            valid_candidates.append(
+                {
+                    "candidate": candidate,
+                    "usage_count": 0,  # 肯定是 0，因为已经过滤掉了 > 0 的
+                    "score": float(candidate.get("score", 0.0)),
+                }
+            )
 
         # 策略4：按评分降序排序选择最佳的
         valid_candidates.sort(key=lambda x: -x["score"])
@@ -989,7 +1011,11 @@ class TimelineBuilder:
             text = str(seg.get("text", "")).strip()
             if not text:
                 continue
-            pieces = [piece.strip() for piece in self._split_pattern.split(text) if piece and piece.strip()]
+            pieces = [
+                piece.strip()
+                for piece in self._split_pattern.split(text)
+                if piece and piece.strip()
+            ]
             if len(pieces) <= 1:
                 exploded.append(seg)
                 continue

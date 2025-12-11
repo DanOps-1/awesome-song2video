@@ -86,7 +86,11 @@ class RenderJobRepository:
         from sqlmodel import select
 
         async with get_session() as session:
-            stmt = select(RenderJob).where(RenderJob.mix_request_id == mix_id).order_by(RenderJob.submitted_at.desc())
+            stmt = (
+                select(RenderJob)
+                .where(RenderJob.mix_request_id == mix_id)
+                .order_by(RenderJob.submitted_at.desc())
+            )
             result = await session.exec(stmt)
             return list(result)
 

@@ -163,7 +163,9 @@ def set_clip_inflight(count: int, *, job_id: str, video_id: str | None = None) -
     render_clip_inflight_gauge.set(count, attributes=labels)
 
 
-def add_clip_failure(job_id: str, *, video_id: str | None = None, reason: str | None = None) -> None:
+def add_clip_failure(
+    job_id: str, *, video_id: str | None = None, reason: str | None = None
+) -> None:
     labels: dict[str, Any] = {"job_id": job_id}
     if video_id:
         labels["video_id"] = video_id

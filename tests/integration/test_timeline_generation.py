@@ -10,7 +10,9 @@ from src.pipelines.matching.timeline_builder import TimelineBuilder
 
 
 @pytest.mark.asyncio
-async def test_timeline_builder_returns_segments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_timeline_builder_returns_segments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     audio_path = tmp_path / "demo.wav"
     audio_path.write_bytes(b"fake audio")
 
@@ -33,8 +35,12 @@ async def test_timeline_builder_returns_segments(monkeypatch: pytest.MonkeyPatch
             }
         ]
 
-    monkeypatch.setattr("src.pipelines.matching.timeline_builder.transcribe_with_timestamps", fake_transcribe)
-    monkeypatch.setattr("src.pipelines.matching.timeline_builder.client.search_segments", fake_search)
+    monkeypatch.setattr(
+        "src.pipelines.matching.timeline_builder.transcribe_with_timestamps", fake_transcribe
+    )
+    monkeypatch.setattr(
+        "src.pipelines.matching.timeline_builder.client.search_segments", fake_search
+    )
 
     timeline = await builder.build(audio_path=audio_path, lyrics_text=None)
     assert len(timeline.lines) == 2

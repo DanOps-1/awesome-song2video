@@ -145,20 +145,22 @@ def concat_with_audio(
         if audio_duration_ms:
             cmd.extend(["-t", f"{audio_duration_ms / 1000:.3f}"])
 
-    cmd.extend([
-        "-i",
-        audio.as_posix(),
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-shortest",
-        output.as_posix(),
-    ])
+    cmd.extend(
+        [
+            "-i",
+            audio.as_posix(),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-shortest",
+            output.as_posix(),
+        ]
+    )
 
     logger.info(
         "video.concat_with_audio",

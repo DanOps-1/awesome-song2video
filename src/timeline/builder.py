@@ -23,9 +23,7 @@ from src.timeline.models import (
 logger = structlog.get_logger(__name__)
 
 
-def calculate_overlap_ratio(
-    start1: int, end1: int, start2: int, end2: int
-) -> float:
+def calculate_overlap_ratio(start1: int, end1: int, start2: int, end2: int) -> float:
     """计算两个时间段的重叠比例
 
     Returns:
@@ -110,9 +108,7 @@ class TimelineBuilder:
         self._used_segments.clear()
 
         # 获取转录结果或解析歌词
-        segments = await self._get_segments(
-            audio_path, lyrics_text, language, prompt
-        )
+        segments = await self._get_segments(audio_path, lyrics_text, language, prompt)
 
         # 分割长片段
         segments = self._explode_segments(segments)
@@ -146,9 +142,7 @@ class TimelineBuilder:
                 gap = start_ms - cursor_ms
                 if gap > 2000:
                     # 大间隙：插入间奏
-                    gap_segment = await self._create_gap_segment(
-                        cursor_ms, start_ms
-                    )
+                    gap_segment = await self._create_gap_segment(cursor_ms, start_ms)
                     timeline.add_segment(gap_segment)
                 else:
                     # 小间隙：向前延伸
@@ -197,6 +191,7 @@ class TimelineBuilder:
         """延迟加载转录器"""
         if self._transcriber is None:
             from src.audio.transcriber import WhisperTranscriber
+
             self._transcriber = WhisperTranscriber()
         return self._transcriber
 
@@ -221,11 +216,13 @@ class TimelineBuilder:
             for idx, line in enumerate(lyrics_text.splitlines()):
                 stripped = line.strip()
                 if stripped:
-                    segments.append({
-                        "text": stripped,
-                        "start": float(idx),
-                        "end": float(idx + 1),
-                    })
+                    segments.append(
+                        {
+                            "text": stripped,
+                            "start": float(idx),
+                            "end": float(idx + 1),
+                        }
+                    )
             return segments
         else:
             raise ValueError("必须提供音频或歌词")
@@ -333,9 +330,7 @@ class TimelineBuilder:
             candidate.start_ms,
             candidate.end_ms,
         )
-        self._used_segments[segment_key] = (
-            self._used_segments.get(segment_key, 0) + 1
-        )
+        self._used_segments[segment_key] = self._used_segments.get(segment_key, 0) + 1
 
     def _create_fallback_candidate(
         self,
@@ -357,9 +352,7 @@ class TimelineBuilder:
         prompt: str = "atmospheric music video, cinematic scenes",
     ) -> TimelineSegment:
         """创建间隙填充片段"""
-        candidates = await self._search_candidates(
-            prompt, start_ms, end_ms, limit=10
-        )
+        candidates = await self._search_candidates(prompt, start_ms, end_ms, limit=10)
         return TimelineSegment(
             text="(Instrumental)",
             start_ms=start_ms,
@@ -381,9 +374,7 @@ class TimelineBuilder:
                     seg["is_non_lyric"] = True
                 else:
                     seg["is_non_lyric"] = False
-                    seg["search_prompt"] = (
-                        "cinematic music video intro, atmospheric"
-                    )
+                    seg["search_prompt"] = "cinematic music video intro, atmospheric"
 
     def _is_non_lyric_text(self, text: str) -> bool:
         """判断是否为非歌词内容"""
@@ -398,9 +389,12 @@ class TimelineBuilder:
 
         cmd = [
             "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             str(audio_path),
         ]
         try:
@@ -455,11 +449,7 @@ class TimelineBuilder:
             if not text:
                 continue
 
-            pieces = [
-                p.strip()
-                for p in self._split_pattern.split(text)
-                if p and p.strip()
-            ]
+            pieces = [p.strip() for p in self._split_pattern.split(text) if p and p.strip()]
 
             if len(pieces) <= 1:
                 result.append(seg)
@@ -476,12 +466,14 @@ class TimelineBuilder:
                 chunk_duration = duration * ratio
                 chunk_end = end if idx == len(pieces) - 1 else cursor + chunk_duration
 
-                result.append({
-                    **seg,
-                    "text": piece,
-                    "start": cursor,
-                    "end": chunk_end,
-                })
+                result.append(
+                    {
+                        **seg,
+                        "text": piece,
+                        "start": cursor,
+                        "end": chunk_end,
+                    }
+                )
                 cursor = chunk_end
 
         return result

@@ -53,7 +53,9 @@ class RenderClipScheduler:
         self._max_retry = max_retry
         self._retry_backoff_base = retry_backoff_base_ms / 1000.0
 
-    async def run(self, tasks: list[ClipDownloadTask], worker: ClipWorker) -> list[ClipDownloadResult]:
+    async def run(
+        self, tasks: list[ClipDownloadTask], worker: ClipWorker
+    ) -> list[ClipDownloadResult]:
         queue: asyncio.Queue[ClipDownloadTask | None] = asyncio.Queue()
         for task in tasks:
             queue.put_nowait(task)

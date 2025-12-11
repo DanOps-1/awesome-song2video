@@ -216,12 +216,14 @@ class ShotDetector:
         for start_frame, end_frame in shots:
             start_time = start_frame / fps
             end_time = end_frame / fps
-            results.append({
-                "start_frame": start_frame,
-                "end_frame": end_frame,
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration": end_time - start_time,
-            })
+            results.append(
+                {
+                    "start_frame": start_frame,
+                    "end_frame": end_frame,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "duration": end_time - start_time,
+                }
+            )
 
         return results

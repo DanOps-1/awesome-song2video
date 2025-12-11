@@ -139,10 +139,7 @@ class VLMRetriever:
             # 计算关键帧数量
             num_frames = VLMCaptioner.get_num_keyframes(duration)
             step = max(1, (end_frame - start_frame) // num_frames)
-            sample_indices = [
-                min(start_frame + i * step, end_frame - 1)
-                for i in range(num_frames)
-            ]
+            sample_indices = [min(start_frame + i * step, end_frame - 1) for i in range(num_frames)]
 
             # 提取帧
             frames = extract_frames(str(video_path), sample_indices)

@@ -23,10 +23,14 @@ class AppSettings(BaseSettings):
 
     # 搜索模态配置
     tl_audio_search_enabled: bool = False  # 是否启用 audio 模态
-    tl_transcription_search_enabled: bool = False  # 是否启用 transcription 模态（仅 Marengo 3.0 索引支持）
+    tl_transcription_search_enabled: bool = (
+        False  # 是否启用 transcription 模态（仅 Marengo 3.0 索引支持）
+    )
 
     # 高级搜索选项（Marengo 3.0）
-    tl_transcription_mode: Literal["lexical", "semantic", "both"] = "semantic"  # transcription 搜索模式
+    tl_transcription_mode: Literal["lexical", "semantic", "both"] = (
+        "semantic"  # transcription 搜索模式
+    )
     tl_search_operator: Literal["or", "and"] = "or"  # 多模态组合方式
     tl_confidence_threshold: float = 0.0  # 置信度阈值 (0.0-1.0)
     postgres_dsn: str

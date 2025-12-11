@@ -107,11 +107,18 @@ def _filter_segments(segments: list[dict], lenient: bool = False) -> list[dict]:
 
     # 常见幻觉词表
     hallucination_phrases = [
-        "优优独播剧场", "YoYo Television", "独播剧场",
-        "字幕", "Copyright", "All rights reserved",
-        "Thank you for watching", "Thanks for watching",
-        "Amara.org", "Subtitles by",
-        "未经作者授权", "禁止转载"
+        "优优独播剧场",
+        "YoYo Television",
+        "独播剧场",
+        "字幕",
+        "Copyright",
+        "All rights reserved",
+        "Thank you for watching",
+        "Thanks for watching",
+        "Amara.org",
+        "Subtitles by",
+        "未经作者授权",
+        "禁止转载",
     ]
 
     for seg in segments:
@@ -131,15 +138,15 @@ def _filter_segments(segments: list[dict], lenient: bool = False) -> list[dict]:
                 threshold=threshold,
             )
             continue
-            
+
         # 2. 检查平均对数概率 (avg_logprob)
         if avg_logprob < -1.0:
             continue
-            
+
         # 3. 检查空文本
         if not text:
             continue
-            
+
         # 4. 检查幻觉词
         is_hallucination = False
         for phrase in hallucination_phrases:
@@ -148,9 +155,9 @@ def _filter_segments(segments: list[dict], lenient: bool = False) -> list[dict]:
                 break
         if is_hallucination:
             continue
-            
+
         filtered.append(seg)
-        
+
     return filtered
 
 
@@ -180,7 +187,12 @@ async def transcribe_with_timestamps(
     temp = audio_path.with_suffix(".wav")
     audio.export(temp, format="wav")
 
-    def _run_whisper(audio_segment: AudioSegment, temp_path: Path, offset_sec: float = 0.0, force_auto_lang: bool = False) -> list[dict]:
+    def _run_whisper(
+        audio_segment: AudioSegment,
+        temp_path: Path,
+        offset_sec: float = 0.0,
+        force_auto_lang: bool = False,
+    ) -> list[dict]:
         """运行 Whisper 并返回调整后的片段。
 
         Args:
@@ -259,10 +271,14 @@ async def transcribe_with_timestamps(
         skip_ms = int(skip_to_sec * 1000)
         gap_end_ms = int(gap_end_sec * 1000)
         gap_audio = audio[skip_ms:gap_end_ms]
-        temp_skip = audio_path.parent / f"{audio_path.stem}_gap_{int(skip_to_sec)}_{int(gap_end_sec)}s.wav"
+        temp_skip = (
+            audio_path.parent / f"{audio_path.stem}_gap_{int(skip_to_sec)}_{int(gap_end_sec)}s.wav"
+        )
 
         # 二次扫描使用自动语言检测，避免因指定语言（如zh）导致跳过英文歌词
-        second_pass_segments = _run_whisper(gap_audio, temp_skip, offset_sec=skip_to_sec, force_auto_lang=True)
+        second_pass_segments = _run_whisper(
+            gap_audio, temp_skip, offset_sec=skip_to_sec, force_auto_lang=True
+        )
         temp_skip.unlink(missing_ok=True)
 
         # === 合并两遍结果 ===
@@ -270,8 +286,7 @@ async def transcribe_with_timestamps(
 
         # 1. 从第一遍保留间隙之前的片段
         first_pass_before_gap = [
-            seg for seg in first_pass_segments
-            if float(seg.get("end", 0)) <= skip_to_sec
+            seg for seg in first_pass_segments if float(seg.get("end", 0)) <= skip_to_sec
         ]
         merged_segments.extend(_filter_segments(first_pass_before_gap, lenient=False))
 
@@ -280,8 +295,7 @@ async def transcribe_with_timestamps(
 
         # 3. 从第一遍保留间隙之后的片段
         first_pass_after_gap = [
-            seg for seg in first_pass_segments
-            if float(seg.get("start", 0)) >= gap_end_sec - 5
+            seg for seg in first_pass_segments if float(seg.get("start", 0)) >= gap_end_sec - 5
         ]
         merged_segments.extend(_filter_segments(first_pass_after_gap, lenient=False))
 

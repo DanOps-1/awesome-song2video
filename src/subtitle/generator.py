@@ -202,9 +202,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
         # 转义文本中的换行符
         text = line.text.replace("\n", "\\N")
 
-        ass_content.append(
-            f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
-        )
+        ass_content.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(ass_content), encoding="utf-8")

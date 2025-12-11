@@ -59,7 +59,9 @@ class SongMixRepository:
             if not lines:
                 return []
             line_ids = [line.id for line in lines]
-            match_stmt = select(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+            match_stmt = select(VideoSegmentMatch).where(
+                cast(Any, VideoSegmentMatch.line_id).in_(line_ids)
+            )
             match_result = await session.exec(match_stmt)
             matches = list(match_result)
             matches_by_line: dict[str, list[VideoSegmentMatch]] = defaultdict(list)
@@ -110,7 +112,9 @@ class SongMixRepository:
             line_ids = [line.id for line in lines]
             if not line_ids:
                 return []
-            match_stmt = select(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+            match_stmt = select(VideoSegmentMatch).where(
+                cast(Any, VideoSegmentMatch.line_id).in_(line_ids)
+            )
             match_result = await session.exec(match_stmt)
             matches = list(match_result)
             matches_by_line: dict[str, list[VideoSegmentMatch]] = defaultdict(list)
@@ -120,7 +124,9 @@ class SongMixRepository:
                 line.candidates = matches_by_line.get(line.id, [])
             return lines
 
-    async def replace_candidates(self, line_id: str, candidates: Sequence[VideoSegmentMatch]) -> None:
+    async def replace_candidates(
+        self, line_id: str, candidates: Sequence[VideoSegmentMatch]
+    ) -> None:
         async with get_session() as session:
             await session.execute(
                 delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id) == line_id)
@@ -205,7 +211,9 @@ class SongMixRepository:
             # 清除视频候选
             if line_ids:
                 await session.execute(
-                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                    delete(VideoSegmentMatch).where(
+                        cast(Any, VideoSegmentMatch.line_id).in_(line_ids)
+                    )
                 )
 
             # 重置歌词行状态
@@ -252,7 +260,9 @@ class SongMixRepository:
             if line_ids:
                 # 删除关联的 VideoSegmentMatch
                 await session.execute(
-                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                    delete(VideoSegmentMatch).where(
+                        cast(Any, VideoSegmentMatch.line_id).in_(line_ids)
+                    )
                 )
 
             # 删除 LyricLine
@@ -276,7 +286,9 @@ class SongMixRepository:
             line_ids = [line.id for line in lines]
             if line_ids:
                 await session.execute(
-                    delete(VideoSegmentMatch).where(cast(Any, VideoSegmentMatch.line_id).in_(line_ids))
+                    delete(VideoSegmentMatch).where(
+                        cast(Any, VideoSegmentMatch.line_id).in_(line_ids)
+                    )
                 )
             # 删除 LyricLine
             await session.execute(
@@ -349,9 +361,7 @@ class SongMixRepository:
             )
 
             # 删除歌词行
-            await session.execute(
-                delete(LyricLine).where(cast(Any, LyricLine.id).in_(line_ids))
-            )
+            await session.execute(delete(LyricLine).where(cast(Any, LyricLine.id).in_(line_ids)))
 
             # 重新排序所有剩余行号
             stmt = (

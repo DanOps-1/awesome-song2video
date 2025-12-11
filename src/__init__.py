@@ -1,2 +1,1 @@
 """Lyrics video sync package."""
-

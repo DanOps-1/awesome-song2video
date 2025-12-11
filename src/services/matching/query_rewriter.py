@@ -195,10 +195,6 @@ class QueryRewriter:
 
 当前歌词："""
 
-        strategies = {
-            0: strategy_0,
-            1: strategy_1,
-            2: strategy_2
-        }
+        strategies = {0: strategy_0, 1: strategy_1, 2: strategy_2}
 
         return strategies.get(attempt, strategy_2)

@@ -45,6 +45,7 @@ class CLIPEmbedder:
         if self._device:
             return self._device
         import torch
+
         return "cuda" if torch.cuda.is_available() else "cpu"
 
     def load_model(self) -> None:
@@ -109,6 +110,7 @@ class CLIPEmbedder:
             if "out of memory" in str(e).lower():
                 logger.error("clip.gpu_oom")
                 import torch
+
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             raise

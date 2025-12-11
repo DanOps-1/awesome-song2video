@@ -32,6 +32,7 @@ class MixCreateRequest(BaseModel):
 
 class LyricLineResponse(BaseModel):
     """歌词行响应。"""
+
     id: str
     line_no: int
     original_text: str
@@ -51,6 +52,7 @@ class MixResponse(BaseModel):
 
 class MixDetailResponse(MixResponse):
     """混剪任务详情，包含歌词行。"""
+
     lines: list[LyricLineResponse] = []
 
 
@@ -61,12 +63,14 @@ class UpdateLineRequest(BaseModel):
     - 提供 text: 更新歌词文本（用于歌词校对阶段）
     - 提供 selected_segment_id: 锁定选中的视频片段（用于视频确认阶段）
     """
+
     text: str | None = Field(None, min_length=1, max_length=500)
     selected_segment_id: str | None = None
 
 
 class AddLineRequest(BaseModel):
     """添加歌词行请求。"""
+
     text: str = Field(..., min_length=1, max_length=500, description="歌词文本")
     start_time_ms: int = Field(..., ge=0, description="开始时间（毫秒）")
     end_time_ms: int = Field(..., ge=0, description="结束时间（毫秒）")
@@ -74,6 +78,7 @@ class AddLineRequest(BaseModel):
 
 class DeleteLinesRequest(BaseModel):
     """批量删除歌词行请求。"""
+
     line_ids: list[str] = Field(..., min_length=1, description="要删除的歌词行 ID 列表")
 
 
@@ -141,7 +146,7 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
 
 @router.post("/{mix_id}/transcribe", status_code=202)
 async def trigger_transcription(
-    mix_id: Annotated[str, Path(description="混剪任务 ID")]
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
 ) -> dict[str, str]:
     """触发歌词识别（阶段1）。
 
@@ -164,6 +169,7 @@ async def trigger_transcription(
 
 class ImportLyricsRequest(BaseModel):
     """导入歌词请求。"""
+
     lyrics_text: str = Field(..., min_length=1, description="歌词文本，每行一句")
 
 
@@ -202,9 +208,19 @@ async def import_lyrics(
             if audio_file.exists():
                 try:
                     result = subprocess.run(
-                        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_file)],
-                        capture_output=True, text=True, timeout=10
+                        [
+                            "ffprobe",
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "format=duration",
+                            "-of",
+                            "default=noprint_wrappers=1:nokey=1",
+                            str(audio_file),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
                     )
                     if result.returncode == 0 and result.stdout.strip():
                         audio_duration_ms = int(float(result.stdout.strip()) * 1000)
@@ -374,9 +390,7 @@ async def delete_lines_batch(
 
 
 @router.post("/{mix_id}/confirm-lyrics", status_code=200)
-async def confirm_lyrics(
-    mix_id: Annotated[str, Path(description="混剪任务 ID")]
-) -> dict[str, str]:
+async def confirm_lyrics(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -> dict[str, str]:
     """确认歌词。
 
     确认后不可再修改歌词，可以触发视频匹配。
@@ -397,7 +411,7 @@ async def confirm_lyrics(
 
 @router.post("/{mix_id}/unconfirm-lyrics", status_code=200)
 async def unconfirm_lyrics(
-    mix_id: Annotated[str, Path(description="混剪任务 ID")]
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
 ) -> dict[str, str]:
     """取消确认歌词，返回歌词编辑状态。
 
@@ -419,7 +433,7 @@ async def unconfirm_lyrics(
 
 @router.post("/{mix_id}/match-videos", status_code=202)
 async def trigger_video_matching(
-    mix_id: Annotated[str, Path(description="混剪任务 ID")]
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
 ) -> dict[str, str]:
     """触发视频匹配（阶段2）。
 
@@ -451,7 +465,7 @@ async def trigger_video_matching(
 
 @router.post("/{mix_id}/generate-timeline", status_code=202)
 async def trigger_generation(
-    mix_id: Annotated[str, Path(description="混剪任务 ID")]
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
 ) -> dict[str, str]:
     """触发完整时间线生成（兼容旧流程）。
 

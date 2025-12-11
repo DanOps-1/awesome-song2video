@@ -46,8 +46,8 @@ class FFMpegScriptBuilder:
         width, height = RESOLUTION_MAP[self.resolution]
         concat_inputs = "".join([f"[{idx}:v:0][{idx}:a:0]" for idx, _ in enumerate(lines)])
         script = (
-            f"-filter_complex \"{concat_inputs}concat=n={len(list(lines))}:v=1:a=1"
-            f",scale={width}:{height}\""
+            f'-filter_complex "{concat_inputs}concat=n={len(list(lines))}:v=1:a=1'
+            f',scale={width}:{height}"'
         )
         return script
 

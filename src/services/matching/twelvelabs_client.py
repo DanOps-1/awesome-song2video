@@ -100,6 +100,7 @@ class TwelveLabsClient:
 
         for options in option_chain:
             try:
+
                 async def _execute() -> list[dict[str, Any]]:
                     return await _run_with_options(options)
 

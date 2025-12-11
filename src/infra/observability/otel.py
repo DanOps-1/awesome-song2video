@@ -81,7 +81,8 @@ def configure_logging() -> None:
         console_renderer = structlog.processors.JSONRenderer(ensure_ascii=False)
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

@@ -27,7 +27,9 @@ class FakeRedis:
 
 
 @pytest.mark.asyncio
-async def test_render_config_hot_reload(monkeypatch: pytest.MonkeyPatch, app_client: AsyncClient) -> None:
+async def test_render_config_hot_reload(
+    monkeypatch: pytest.MonkeyPatch, app_client: AsyncClient
+) -> None:
     fake = FakeRedis()
     monkeypatch.setattr(render_config_route.service, "_redis", fake)
     monkeypatch.setattr(render_config_service, "_cached_config", None)

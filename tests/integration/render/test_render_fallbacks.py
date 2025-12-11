@@ -28,7 +28,9 @@ async def test_render_pipeline_with_placeholder(
     lines = []
     candidates = []
     for idx in range(3):
-        line = lyric_line_factory(line_id=f"line-{idx}-{uuid4()}"[:18], line_no=idx + 1, mix_request_id=mix.id)
+        line = lyric_line_factory(
+            line_id=f"line-{idx}-{uuid4()}"[:18], line_no=idx + 1, mix_request_id=mix.id
+        )
         lines.append(line)
         candidates.append(
             video_segment_match_factory(
@@ -53,10 +55,17 @@ async def test_render_pipeline_with_placeholder(
         raise RuntimeError("cdn_unavailable")
 
     monkeypatch.setattr(render_worker.video_fetcher, "fetch_clip", flaky_fetch)
-    monkeypatch.setattr("src.workers.render_worker._run_ffmpeg", lambda cmd: Path(cmd[-1]).write_text("video"))
-    monkeypatch.setattr("src.workers.render_worker._attach_audio_track", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "src.workers.render_worker._run_ffmpeg", lambda cmd: Path(cmd[-1]).write_text("video")
+    )
+    monkeypatch.setattr(
+        "src.workers.render_worker._attach_audio_track", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr("src.workers.render_worker._resolve_audio_path", lambda mix: None)
-    monkeypatch.setattr("src.services.render.placeholder_manager.write_placeholder_clip", lambda target, duration: target.write_text("placeholder"))
+    monkeypatch.setattr(
+        "src.services.render.placeholder_manager.write_placeholder_clip",
+        lambda target, duration: target.write_text("placeholder"),
+    )
 
     await render_worker._render_mix_impl(job.id)
 

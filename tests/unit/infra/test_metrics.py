@@ -46,6 +46,8 @@ def test_clip_metric_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     metrics.add_placeholder_clip("job-1", video_id="vid-1")
 
     assert inflight.calls == [("set", 3, {"job_id": "job-1", "video_id": "vid-1"})]
-    assert failures.calls == [("add", {"job_id": "job-1", "video_id": "vid-1", "reason": "timeout"})]
+    assert failures.calls == [
+        ("add", {"job_id": "job-1", "video_id": "vid-1", "reason": "timeout"})
+    ]
     assert duration.calls == [(1234.5, {"job_id": "job-1", "video_id": "vid-1"})]
     assert placeholder.calls == [("add", {"job_id": "job-1", "video_id": "vid-1"})]

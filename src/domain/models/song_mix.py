@@ -70,6 +70,7 @@ class SongMixRequest(SQLModel, table=True):
     - matching: 视频匹配中
     - generated: 匹配完成
     """
+
     __tablename__ = "song_mix_requests"
 
     id: str = Field(primary_key=True)

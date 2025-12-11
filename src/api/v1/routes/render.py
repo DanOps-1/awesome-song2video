@@ -69,12 +69,10 @@ async def get_render_status(mix_id: Annotated[str, Path()], job_id: str) -> Rend
         # output_asset_id 格式为 "artifacts/renders/{job_id}.mp4"
         # 转换为 URL 路径 "/api/v1/renders/{job_id}.mp4"
         from pathlib import Path
+
         asset_path = Path(job.output_asset_id)
         output_url = f"/api/v1/renders/{asset_path.name}"
 
     return RenderResponse(
-        job_id=job.id,
-        status=job.job_status,
-        progress=job.progress,
-        output_url=output_url
+        job_id=job.id, status=job.job_status, progress=job.progress, output_url=output_url
     )

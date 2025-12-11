@@ -90,9 +90,7 @@ def filter_segments(segments: list[dict]) -> list[dict]:
             continue
 
         # 4. 检查幻觉词
-        is_hallucination = any(
-            phrase.lower() in text.lower() for phrase in HALLUCINATION_PHRASES
-        )
+        is_hallucination = any(phrase.lower() in text.lower() for phrase in HALLUCINATION_PHRASES)
         if is_hallucination:
             continue
 

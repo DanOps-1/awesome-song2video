@@ -114,10 +114,12 @@ class VLMCaptioner:
         content = []
         for frame in frames:
             img_b64 = self._frame_to_base64(frame)
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
-            })
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+                }
+            )
         content.append({"type": "text", "text": prompt})
 
         try:

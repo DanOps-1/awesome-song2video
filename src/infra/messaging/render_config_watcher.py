@@ -19,7 +19,8 @@ logger = structlog.get_logger(__name__)
 class RenderConfigWatcher:
     def __init__(
         self,
-        on_update: Callable[[RenderClipConfig], Awaitable[None]] | Callable[[RenderClipConfig], None],
+        on_update: Callable[[RenderClipConfig], Awaitable[None]]
+        | Callable[[RenderClipConfig], None],
     ) -> None:
         self._channel = get_settings().render_config_channel
         self._on_update = on_update

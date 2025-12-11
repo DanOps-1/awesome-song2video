@@ -16,7 +16,11 @@ import structlog
 from src.domain.models.metrics import create_render_metrics
 from src.domain.models.render_clip_config import RenderClipConfig
 from src.domain.models.song_mix import LyricLine, SongMixRequest
-from src.domain.services.render_clip_scheduler import ClipDownloadResult, ClipDownloadTask, RenderClipScheduler
+from src.domain.services.render_clip_scheduler import (
+    ClipDownloadResult,
+    ClipDownloadTask,
+    RenderClipScheduler,
+)
 from src.domain.services.render_reporter import build_clip_stats
 from src.infra.config.settings import get_settings
 from src.infra.messaging.render_config_watcher import RenderConfigWatcher
@@ -133,8 +137,10 @@ async def _render_mix_impl(job_id: str) -> None:
                     "0",
                     "-i",
                     concat_file.as_posix(),
-                    "-map", "0:v",  # 只选择视频流，移除原视频音频
-                    "-c:v", "copy",
+                    "-map",
+                    "0:v",  # 只选择视频流，移除原视频音频
+                    "-c:v",
+                    "copy",
                     output_video.as_posix(),
                 ]
             )
@@ -245,15 +251,19 @@ def _build_render_line(line: LyricLine) -> RenderLine:
     end_ms = selected.end_time_ms if selected else line.end_time_ms
 
     # 转换所有候选片段为 VideoCandidate
-    video_candidates = [
-        VideoCandidate(
-            video_id=c.source_video_id,
-            start_ms=c.start_time_ms,
-            end_ms=c.end_time_ms,
-            score=getattr(c, "score", 0.0),
-        )
-        for c in candidates
-    ] if candidates else None
+    video_candidates = (
+        [
+            VideoCandidate(
+                video_id=c.source_video_id,
+                start_ms=c.start_time_ms,
+                end_ms=c.end_time_ms,
+                score=getattr(c, "score", 0.0),
+            )
+            for c in candidates
+        ]
+        if candidates
+        else None
+    )
 
     return RenderLine(
         source_video_id=source_video_id,
@@ -266,7 +276,9 @@ def _build_render_line(line: LyricLine) -> RenderLine:
     )
 
 
-async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -> tuple[list[Path], dict[str, float | int | str]]:
+async def _extract_clips(
+    lines: list[RenderLine], job_id: str, tmp_path: Path
+) -> tuple[list[Path], dict[str, float | int | str]]:
     scheduler = RenderClipScheduler(
         max_parallelism=clip_config.max_parallelism,
         per_video_limit=clip_config.per_video_limit,
@@ -347,7 +359,9 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
                     if clip_path and clip_path.exists():
                         # 成功！
                         duration_ms = (time.perf_counter() - start) * 1000
-                        observe_clip_duration(duration_ms, job_id=job_id, video_id=candidate.video_id)
+                        observe_clip_duration(
+                            duration_ms, job_id=job_id, video_id=candidate.video_id
+                        )
                         async with duration_lock:
                             durations.append(duration_ms)
                         await update_clip_progress()  # 更新下载进度
@@ -361,7 +375,9 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
                             duration_ms=round(duration_ms, 2),
                             parallel_slot=parallel_slot,
                         )
-                        return ClipDownloadResult(task=task, status="success", path=clip_path, duration_ms=duration_ms)
+                        return ClipDownloadResult(
+                            task=task, status="success", path=clip_path, duration_ms=duration_ms
+                        )
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
                     logger.warning(
@@ -411,7 +427,9 @@ async def _extract_clips(lines: list[RenderLine], job_id: str, tmp_path: Path) -
                 duration_ms=round(duration_ms, 2),
                 parallel_slot=parallel_slot,
             )
-            return ClipDownloadResult(task=task, status="success", path=clip_path, duration_ms=duration_ms)
+            return ClipDownloadResult(
+                task=task, status="success", path=clip_path, duration_ms=duration_ms
+            )
         except Exception as exc:  # noqa: BLE001
             add_clip_failure(job_id=job_id, video_id=task.video_id, reason=type(exc).__name__)
             logger.warning(
@@ -579,11 +597,15 @@ def _resolve_audio_path(mix: SongMixRequest | None) -> Path | None:
             logger.info("render_worker.audio_found_by_stem", path=str(path))
             return path
 
-    logger.warning("render_worker.audio_missing", audio_asset_id=mix.audio_asset_id, audio_dir=str(audio_dir))
+    logger.warning(
+        "render_worker.audio_missing", audio_asset_id=mix.audio_asset_id, audio_dir=str(audio_dir)
+    )
     return None
 
 
-def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path, render_lines: list[RenderLine]) -> None:
+def _attach_audio_track(
+    video_path: Path, audio_path: Path, target_path: Path, render_lines: list[RenderLine]
+) -> None:
     """将音频轨道附加到视频上，并裁剪音频以匹配歌词时间轴。
 
     关键修复：
@@ -601,9 +623,19 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path, r
 
     def get_duration(path: Path) -> float:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", path.as_posix()],
-            capture_output=True, text=True, check=False
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path.as_posix(),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         return float(result.stdout.strip()) if result.returncode == 0 else 0.0
 
@@ -612,11 +644,20 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path, r
         logger.warning("render_worker.no_render_lines", message="没有渲染行，无法裁剪音频")
         # 回退到不裁剪的方式
         cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path.as_posix(),
-            "-i", audio_path.as_posix(),
-            "-c:v", "copy", "-c:a", "aac",
-            "-map", "0:v:0", "-map", "1:a:0",
+            "ffmpeg",
+            "-y",
+            "-i",
+            video_path.as_posix(),
+            "-i",
+            audio_path.as_posix(),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
             "-shortest",
             target_path.as_posix(),
         ]
@@ -649,14 +690,22 @@ def _attach_audio_track(video_path: Path, audio_path: Path, target_path: Path, r
     cmd = [
         "ffmpeg",
         "-y",
-        "-i", video_path.as_posix(),
-        "-ss", str(start_sec),  # 从歌词开始位置裁剪音频
-        "-t", str(duration_sec),  # 裁剪时长
-        "-i", audio_path.as_posix(),
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
+        "-i",
+        video_path.as_posix(),
+        "-ss",
+        str(start_sec),  # 从歌词开始位置裁剪音频
+        "-t",
+        str(duration_sec),  # 裁剪时长
+        "-i",
+        audio_path.as_posix(),
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-shortest",  # 以较短的流为准
         target_path.as_posix(),
     ]
@@ -702,12 +751,18 @@ def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) ->
     cmd = [
         "ffmpeg",
         "-y",
-        "-i", video_path.as_posix(),
-        "-vf", f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-c:a", "copy",
+        "-i",
+        video_path.as_posix(),
+        "-vf",
+        f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "23",
+        "-c:a",
+        "copy",
         target_path.as_posix(),
     ]
 

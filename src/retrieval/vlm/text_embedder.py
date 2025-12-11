@@ -40,6 +40,7 @@ class TextEmbedder:
         if self._device:
             return self._device
         import torch
+
         return "cuda" if torch.cuda.is_available() else "cpu"
 
     def load_model(self) -> None:

@@ -44,10 +44,7 @@ class EDLWriter:
         timeline: Timeline,
     ) -> List[RenderLine]:
         """将时间线转换为渲染行列表"""
-        return [
-            RenderLine.from_segment(segment)
-            for segment in timeline.segments
-        ]
+        return [RenderLine.from_segment(segment) for segment in timeline.segments]
 
     def write_edl(
         self,
@@ -112,9 +109,6 @@ class EDLWriter:
         n = len(render_lines)
 
         concat_inputs = "".join([f"[{i}:v:0][{i}:a:0]" for i in range(n)])
-        filter_cmd = (
-            f'-filter_complex "{concat_inputs}concat=n={n}:v=1:a=1'
-            f',scale={width}:{height}"'
-        )
+        filter_cmd = f'-filter_complex "{concat_inputs}concat=n={n}:v=1:a=1,scale={width}:{height}"'
 
         return filter_cmd

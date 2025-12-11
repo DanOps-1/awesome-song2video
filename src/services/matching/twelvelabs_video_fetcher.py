@@ -67,10 +67,14 @@ class TwelveLabsVideoFetcher:
         # 回退：若本地已有手动放置的全量文件，则从本地截取
         local_source = Path(self._settings.video_asset_dir) / f"{video_id}.mp4"
         if local_source.exists():
-            if self._cut_clip(local_source.as_posix(), start_ms, end_ms, target, video_id, is_local=True):
+            if self._cut_clip(
+                local_source.as_posix(), start_ms, end_ms, target, video_id, is_local=True
+            ):
                 return target
 
-        logger.warning("twelvelabs.clip_unavailable", video_id=video_id, start_ms=start_ms, end_ms=end_ms)
+        logger.warning(
+            "twelvelabs.clip_unavailable", video_id=video_id, start_ms=start_ms, end_ms=end_ms
+        )
         return None
 
     def _retrieve_video_payload(self, video_id: str) -> dict[str, Any] | None:
@@ -81,7 +85,9 @@ class TwelveLabsVideoFetcher:
                 time.sleep(random.uniform(0, 0.5))
                 response = httpx.get(url, headers=headers, timeout=30.0)
                 response.raise_for_status()
-                logger.info("twelvelabs.retrieve_success", video_id=video_id, base_url=base or "default")
+                logger.info(
+                    "twelvelabs.retrieve_success", video_id=video_id, base_url=base or "default"
+                )
                 payload: dict[str, Any] = response.json()
                 return payload
             except httpx.HTTPStatusError as exc:
@@ -170,7 +176,7 @@ class TwelveLabsVideoFetcher:
                     message="裁剪起始时间超出视频时长，切换至循环模式",
                 )
                 return self._cut_clip_with_loop(source_url, duration, target, video_id)
-            
+
             # 情况 2: 结束时间超出 -> 必须循环以保证时长 (Duration is King!)
             # 之前的逻辑是 truncate，导致音画不同步。现在改为循环。
             if end_ms > source_duration_ms:
@@ -276,12 +282,15 @@ class TwelveLabsVideoFetcher:
         """使用 ffprobe 获取视频时长（毫秒）。"""
         if source_url in self._duration_cache:
             return self._duration_cache[source_url]
-            
+
         cmd = [
             "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             source_url,
         ]
         try:
@@ -302,7 +311,9 @@ class TwelveLabsVideoFetcher:
             logger.warning("ffprobe.duration_failed", source=source_url, error=str(exc))
         return None
 
-    def _cut_clip_with_loop(self, source_url: str, duration: float, target: Path, video_id: str) -> bool:
+    def _cut_clip_with_loop(
+        self, source_url: str, duration: float, target: Path, video_id: str
+    ) -> bool:
         """使用循环模式裁剪视频（当起始时间超出视频时长时）。
 
         FFmpeg -stream_loop 参数会循环输入流，从头开始裁剪所需时长。
@@ -319,13 +330,20 @@ class TwelveLabsVideoFetcher:
         cmd = [
             "ffmpeg",
             "-y",
-            "-stream_loop", "-1",  # 无限循环输入流
-            "-i", source_url,
-            "-t", f"{duration:.3f}",  # 从头裁剪指定时长
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-c:a", "aac",
-            "-b:a", "128k",
+            "-stream_loop",
+            "-1",  # 无限循环输入流
+            "-i",
+            source_url,
+            "-t",
+            f"{duration:.3f}",  # 从头裁剪指定时长
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
             target.as_posix(),
         ]
 
@@ -349,7 +367,9 @@ class TwelveLabsVideoFetcher:
             if target.exists() and self._verify_video_streams(target):
                 return True
 
-            logger.warning("twelvelabs.clip_loop_failed", video_id=video_id, target=target.as_posix())
+            logger.warning(
+                "twelvelabs.clip_loop_failed", video_id=video_id, target=target.as_posix()
+            )
             if target.exists():
                 target.unlink()
 
@@ -398,7 +418,9 @@ class TwelveLabsVideoFetcher:
     def _get_video_lock(self, video_id: str) -> threading.Semaphore:
         with self._locks_lock:
             if video_id not in self._per_video_locks:
-                self._per_video_locks[video_id] = threading.Semaphore(self._settings.render_per_video_limit)
+                self._per_video_locks[video_id] = threading.Semaphore(
+                    self._settings.render_per_video_limit
+                )
             return self._per_video_locks[video_id]
 
 

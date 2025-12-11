@@ -40,9 +40,12 @@ def _get_audio_duration_ms(audio_path: Path) -> int:
     """使用 ffprobe 获取音频文件时长（毫秒）。"""
     cmd = [
         "ffprobe",
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         audio_path.as_posix(),
     ]
     try:
@@ -120,7 +123,9 @@ async def transcribe_lyrics(ctx: dict | None, mix_id: str) -> None:
     # 进度回调
     async def on_progress(progress: float) -> None:
         await repo.update_timeline_progress(mix_id, progress)
-        logger.info("timeline_worker.transcribe_progress", mix_id=mix_id, progress=round(progress, 1))
+        logger.info(
+            "timeline_worker.transcribe_progress", mix_id=mix_id, progress=round(progress, 1)
+        )
 
     # 只进行 Whisper 识别
     segments = await builder.transcribe_only(

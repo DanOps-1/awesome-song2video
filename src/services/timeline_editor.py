@@ -16,11 +16,17 @@ audit_repo = LineAuditRepository()
 
 
 class TimelineEditor:
-    async def list_lines(self, mix_id: str, min_confidence: float | None = None) -> list[dict[str, Any]]:
+    async def list_lines(
+        self, mix_id: str, min_confidence: float | None = None
+    ) -> list[dict[str, Any]]:
         lines = await timeline_repo.list_lines(mix_id)
         items: list[dict[str, Any]] = []
         for line in lines:
-            if min_confidence is not None and line.auto_confidence and line.auto_confidence < min_confidence:
+            if (
+                min_confidence is not None
+                and line.auto_confidence
+                and line.auto_confidence < min_confidence
+            ):
                 continue
             items.append(self._serialize_line(line))
         return items
@@ -59,7 +65,9 @@ class TimelineEditor:
         )
         return self._serialize_line(updated)
 
-    async def rerun_search(self, line_id: str, prompt_override: str | None = None) -> list[dict[str, Any]]:
+    async def rerun_search(
+        self, line_id: str, prompt_override: str | None = None
+    ) -> list[dict[str, Any]]:
         line = await timeline_repo.get_line(line_id)
         if line is None:
             raise ValueError("Lyric line not found")

@@ -35,7 +35,9 @@ def _build_settings(tmp_path: Path, live: bool) -> AppSettings:
     )
 
 
-def test_fetch_clip_downloads_segment_without_persisting_whole_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_clip_downloads_segment_without_persisting_whole_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = _build_settings(tmp_path, live=True)
     fetcher = TwelveLabsVideoFetcher(settings=settings)
 
@@ -60,7 +62,9 @@ def test_fetch_clip_downloads_segment_without_persisting_whole_video(tmp_path: P
     assert len(calls) == 1
 
 
-def test_fetch_clip_falls_back_to_local_when_live_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_clip_falls_back_to_local_when_live_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     settings = _build_settings(tmp_path, live=False)
     fetcher = TwelveLabsVideoFetcher(settings=settings)
 

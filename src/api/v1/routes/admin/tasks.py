@@ -130,9 +130,7 @@ async def list_tasks(
         processing=sum(1 for t in all_tasks if t.timeline_status == "processing"),
         completed=sum(1 for t in all_tasks if t.render_status == "completed"),
         failed=sum(
-            1
-            for t in all_tasks
-            if t.timeline_status == "failed" or t.render_status == "failed"
+            1 for t in all_tasks if t.timeline_status == "failed" or t.render_status == "failed"
         ),
     )
 
@@ -260,8 +258,7 @@ async def cancel_render_job(
         cancelled = await job_repo.cancel(job_id)
         if not cancelled:
             raise HTTPException(
-                status_code=400,
-                detail="Cannot cancel job: not in queued or running state"
+                status_code=400, detail="Cannot cancel job: not in queued or running state"
             )
         # 更新 mix 的 render_status
         await mix_repo.update_status(task_id, render_status="cancelled")
@@ -288,7 +285,9 @@ async def get_task_logs(task_id: Annotated[str, Path()]) -> TaskLogsResponse:
                     timestamp=task.updated_at or datetime.utcnow(),
                     level="ERROR",
                     message=f"Error: {code}",
-                    details={"error_details": details} if isinstance(details, dict) else {"error": details},
+                    details={"error_details": details}
+                    if isinstance(details, dict)
+                    else {"error": details},
                 )
             )
 

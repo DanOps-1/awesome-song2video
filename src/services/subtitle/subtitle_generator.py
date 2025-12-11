@@ -12,6 +12,7 @@ logger = structlog.get_logger(__name__)
 
 class LyricLine:
     """歌词行数据结构。"""
+
     def __init__(self, text: str, start_ms: int, end_ms: int):
         self.text = text
         self.start_ms = start_ms
@@ -130,9 +131,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         # 转义文本
         text = line.text.replace("\n", "\\N")
 
-        ass_content.append(
-            f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
-        )
+        ass_content.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}")
 
     # 写入文件
     output_path.parent.mkdir(parents=True, exist_ok=True)
