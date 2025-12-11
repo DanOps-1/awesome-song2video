@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Sequence, cast
 
 from anyio import to_thread
-from pydub import AudioSegment  # type: ignore[import-untyped]
-import whisper  # type: ignore[import-untyped]
+from pydub import AudioSegment
+import whisper
 import structlog
 
 from src.infra.config.settings import get_settings
@@ -181,7 +181,6 @@ async def transcribe_with_timestamps(
         prompt: Whisper initial_prompt
         skip_intro: 已废弃，不再使用
     """
-
     audio = AudioSegment.from_file(audio_path)
 
     temp = audio_path.with_suffix(".wav")
@@ -311,6 +310,9 @@ async def transcribe_with_timestamps(
 
         return cast(Sequence[WhisperResult], merged_segments)
 
-    segments = await to_thread.run_sync(_run_model)
-    temp.unlink(missing_ok=True)
+    try:
+        segments = await to_thread.run_sync(_run_model)
+    finally:
+        temp.unlink(missing_ok=True)
+
     return segments

@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { Music, Upload, ArrowLeft, Loader2, X, FileAudio } from 'lucide-react'
-import { createMix, transcribeLyrics, uploadAudio } from '@/api/mix'
+import { createMix, transcribeLyrics, fetchLyrics, uploadAudio } from '@/api/mix'
 
 export default function Create() {
   const navigate = useNavigate()
@@ -13,6 +13,7 @@ export default function Create() {
     song_title: '',
     artist: '',
     language: 'auto',
+    lyricsMode: 'search' as 'search' | 'ai',  // search=搜索歌词(推荐), ai=AI识别
   })
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -80,8 +81,21 @@ export default function Create() {
         language: formData.language,
       })
 
-      // 触发 Whisper 识别（异步处理）
-      transcribeLyrics(mix.id).catch(console.error)
+      // 根据用户选择的模式获取歌词
+      if (formData.lyricsMode === 'search') {
+        // 搜索模式：优先从音乐平台获取歌词，失败则回退到 AI 识别
+        fetchLyrics(mix.id)
+          .then((result) => {
+            console.log('歌词获取成功:', result.matched_song, result.line_count + '句')
+          })
+          .catch((err) => {
+            console.log('歌词搜索失败，回退到 AI 识别:', err.message)
+            transcribeLyrics(mix.id).catch(console.error)
+          })
+      } else {
+        // AI 识别模式：直接使用 Whisper 识别
+        transcribeLyrics(mix.id).catch(console.error)
+      }
 
       return mix
     },
@@ -171,9 +185,6 @@ export default function Create() {
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <p className="mt-2 text-xs text-gray-500">
-                上传后将自动使用 AI 识别歌词
-              </p>
             </div>
 
             <div>
@@ -216,6 +227,49 @@ export default function Create() {
                 <option value="zh">中文</option>
                 <option value="en">英文</option>
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                歌词获取方式
+              </label>
+              <div className="space-y-2">
+                <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                  <input
+                    type="radio"
+                    name="lyricsMode"
+                    value="search"
+                    checked={formData.lyricsMode === 'search'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, lyricsMode: e.target.value as 'search' | 'ai' }))}
+                    className="mt-1 text-purple-600 focus:ring-purple-500"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">在线搜索歌词</span>
+                      <span className="px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full">推荐</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      从 QQ音乐、网易云、酷狗等平台搜索精准歌词，速度快、准确率高
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 p-3 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors has-[:checked]:border-purple-500 has-[:checked]:bg-purple-50">
+                  <input
+                    type="radio"
+                    name="lyricsMode"
+                    value="ai"
+                    checked={formData.lyricsMode === 'ai'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, lyricsMode: e.target.value as 'search' | 'ai' }))}
+                    className="mt-1 text-purple-600 focus:ring-purple-500"
+                  />
+                  <div className="flex-1">
+                    <span className="font-medium text-gray-900">AI 语音识别</span>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      使用 Whisper 识别音频中的歌词，适合冷门歌曲或自创内容
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
 
             <button

@@ -254,6 +254,70 @@ async def import_lyrics(
     return {"message": f"已导入 {len(lyric_lines)} 行歌词"}
 
 
+@router.post("/{mix_id}/fetch-lyrics", status_code=200)
+async def fetch_lyrics(
+    mix_id: Annotated[str, Path(description="混剪任务 ID")],
+) -> dict[str, str | int | None]:
+    """从网易云音乐获取歌词（使用歌曲名和歌手自动匹配）。
+
+    根据任务中的 song_title 和 artist 信息，自动从网易云音乐 API
+    搜索并获取带时间戳的 LRC 歌词，然后解析保存到数据库。
+    完成后状态变为 transcribed，等待用户确认歌词。
+    """
+    from src.domain.models.song_mix import LyricLine
+    from src.lyrics.fetcher import get_lyrics, lyrics_to_segments
+
+    mix = await repo.get_request(mix_id)
+    if mix is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    if mix.timeline_status not in ("pending", "error"):
+        raise HTTPException(status_code=400, detail="任务状态不允许获取歌词")
+
+    if not mix.song_title:
+        raise HTTPException(status_code=400, detail="缺少歌曲名称")
+
+    # 从网易云获取歌词
+    song_info, lyrics = await get_lyrics(
+        song_name=mix.song_title,
+        artist=mix.artist,
+    )
+
+    if not lyrics:
+        raise HTTPException(
+            status_code=404,
+            detail=f"未找到歌曲 '{mix.song_title}' 的歌词",
+        )
+
+    # 转换为数据库歌词行
+    segments = lyrics_to_segments(lyrics)
+    lyric_lines: list[LyricLine] = []
+
+    for index, seg in enumerate(segments, start=1):
+        lyric_lines.append(
+            LyricLine(
+                id=str(uuid4()),
+                mix_request_id=mix_id,
+                line_no=index,
+                original_text=seg["text"],
+                start_time_ms=int(seg["start"] * 1000),
+                end_time_ms=int(seg["end"] * 1000),
+                status="pending",
+            )
+        )
+
+    # 保存歌词行
+    await repo.bulk_insert_lines(lyric_lines)
+    await repo.update_timeline_status(mix_id, "transcribed")
+
+    return {
+        "message": f"已获取 {len(lyric_lines)} 行歌词",
+        "matched_song": song_info.name if song_info else None,
+        "matched_artist": song_info.artist if song_info else None,
+        "line_count": len(lyric_lines),
+    }
+
+
 @router.patch("/{mix_id}/lines/{line_id}")
 async def update_line(
     mix_id: Annotated[str, Path(description="混剪任务 ID")],

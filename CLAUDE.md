@@ -35,6 +35,9 @@ pytest tests/contract/test_health.py
 
 # Run e2e tests
 python scripts/dev/e2e_full_render_test.py
+
+# Test lyrics fetcher
+python -m src.lyrics.fetcher "歌曲名" "歌手名"
 ```
 
 ### Code Quality
@@ -56,10 +59,20 @@ mypy src
 ## Architecture
 
 ### Core Data Flow
-1. **Audio Upload** → Whisper transcribes lyrics with timestamps
-2. **Lyrics Confirmation** → User reviews/edits recognized lyrics
-3. **Video Matching** → TwelveLabs API matches each lyric line to video segments
-4. **Rendering** → FFmpeg concatenates clips with audio and burned-in subtitles
+1. **Audio Upload** → User uploads audio file
+2. **Lyrics Acquisition** → Multi-source lyrics search (recommended) or Whisper ASR (fallback)
+3. **Lyrics Confirmation** → User reviews/edits lyrics
+4. **Video Matching** → TwelveLabs API matches each lyric line to video segments
+5. **Rendering** → FFmpeg concatenates clips with audio and burned-in subtitles
+
+### Lyrics Acquisition (Multi-Source)
+The system supports two lyrics acquisition modes:
+1. **Online Search (Recommended)**: Fetches lyrics from multiple platforms with auto-fallback
+   - QQ Music (best coverage, including Jay Chou)
+   - NetEase Cloud Music
+   - Kugou Music
+   - LRCLIB (international songs)
+2. **AI Recognition**: Uses Whisper ASR for rare songs or original content
 
 ### Two-Phase Timeline Generation
 The system uses a two-phase workflow in `timeline_worker.py`:
@@ -67,12 +80,16 @@ The system uses a two-phase workflow in `timeline_worker.py`:
 2. `match_videos`: Video matching for confirmed lyrics (transcribed → matching → generated)
 
 ### Key Services
+- **LyricsFetcher** (`src/lyrics/fetcher.py`): Multi-source lyrics fetcher with auto-fallback (QQ/NetEase/Kugou/LRCLIB)
 - **TimelineBuilder** (`src/pipelines/matching/timeline_builder.py`): Orchestrates Whisper transcription and TwelveLabs video search with query rewriting and deduplication
 - **RenderWorker** (`src/workers/render_worker.py`): Parallel clip extraction with FFmpeg, supports hot-reload config via Redis
 - **QueryRewriter** (`src/services/matching/query_rewriter.py`): Uses DeepSeek LLM to convert abstract lyrics to visual descriptions
 
 ### API Structure
 - `/api/v1/mixes` - Create/manage mix requests
+- `/api/v1/mixes/{id}/fetch-lyrics` - Fetch lyrics from online sources (QQ/NetEase/Kugou/LRCLIB)
+- `/api/v1/mixes/{id}/transcribe` - Transcribe lyrics using Whisper ASR
+- `/api/v1/mixes/{id}/import-lyrics` - Import user-provided lyrics
 - `/api/v1/mixes/{id}/lines` - Manage lyric lines
 - `/api/v1/mixes/{id}/preview` - Get timeline manifest
 - `/api/v1/mixes/{id}/render` - Submit render job

@@ -82,6 +82,18 @@ export async function importLyrics(mixId: string, lyricsText: string): Promise<{
   return data
 }
 
+export interface FetchLyricsResponse {
+  message: string
+  matched_song: string | null
+  matched_artist: string | null
+  line_count: number
+}
+
+export async function fetchLyrics(mixId: string): Promise<FetchLyricsResponse> {
+  const { data } = await apiClient.post(`/mixes/${mixId}/fetch-lyrics`)
+  return data
+}
+
 export async function updateLine(mixId: string, lineId: string, text: string): Promise<LineInfo> {
   const { data } = await apiClient.patch(`/mixes/${mixId}/lines/${lineId}`, { text })
   return data
