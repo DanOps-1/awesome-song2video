@@ -67,3 +67,16 @@ node_modules/
 *.swp
 .ruff_cache/
 poc_clean/scripts/vlm_search/data/
+
+# 调试文件
+debug*.png
+
+# 测试输出
+test_output/
+
+# 数据目录
+data/*.db
+
+# 根目录 Node 文件（仅前端目录需要）
+/package.json
+/package-lock.json
