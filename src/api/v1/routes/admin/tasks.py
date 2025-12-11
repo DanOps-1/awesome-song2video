@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Path, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository

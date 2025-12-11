@@ -16,7 +16,7 @@ import structlog
 
 from src.infra.config.settings import AppSettings, get_settings
 from src.video.clip_cutter import cut_clip, cut_clip_with_loop
-from src.video.utils import get_video_duration_ms, verify_video_streams
+from src.video.utils import get_video_duration_ms
 
 logger = structlog.get_logger(__name__)
 

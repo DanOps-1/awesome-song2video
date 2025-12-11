@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 import structlog
@@ -44,7 +44,6 @@ class CLIPDatabase:
             embedding_dim: 嵌入向量维度
         """
         from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams
 
         self.db_path = db_path
         self.collection_name = collection_name

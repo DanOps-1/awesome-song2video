@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-import numpy as np
 import structlog
 
 logger = structlog.get_logger(__name__)

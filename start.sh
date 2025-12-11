@@ -55,17 +55,17 @@ fi
 
 # [2/5] 启动 Timeline Worker（歌词识别、视频匹配）
 echo "[2/5] 启动 Timeline Worker..."
-pkill -9 -f "src.workers.timeline_worker" 2>/dev/null || true
+pkill -9 -f "arq src.workers.timeline_worker" 2>/dev/null || true
 sleep 1
-nohup python -m src.workers.timeline_worker > logs/timeline_worker.log 2>&1 &
+nohup arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
 TIMELINE_PID=$!
 echo "Timeline Worker PID: $TIMELINE_PID"
 
 # [3/5] 启动 Render Worker（视频渲染）
 echo "[3/5] 启动 Render Worker..."
-pkill -9 -f "src.workers.render_worker" 2>/dev/null || true
+pkill -9 -f "arq src.workers.render_worker" 2>/dev/null || true
 sleep 1
-nohup python -m src.workers.render_worker > logs/render_worker.log 2>&1 &
+nohup arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
 RENDER_PID=$!
 echo "Render Worker PID: $RENDER_PID"
 
@@ -113,13 +113,13 @@ else
 fi
 
 # 检查 Workers
-if pgrep -f "src.workers.timeline_worker" > /dev/null; then
+if pgrep -f "arq src.workers.timeline_worker" > /dev/null; then
     echo "✓ Timeline Worker 运行中"
 else
     echo "✗ Timeline Worker 未运行"
 fi
 
-if pgrep -f "src.workers.render_worker" > /dev/null; then
+if pgrep -f "arq src.workers.render_worker" > /dev/null; then
     echo "✓ Render Worker 运行中"
 else
     echo "✗ Render Worker 未运行"

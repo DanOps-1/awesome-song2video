@@ -11,11 +11,11 @@ pkill -9 -f "uvicorn.*8000" 2>/dev/null && echo "✓ 后端已关闭" || echo "-
 
 # [2/5] 关闭 Timeline Worker
 echo "[2/5] 关闭 Timeline Worker..."
-pkill -9 -f "src.workers.timeline_worker" 2>/dev/null && echo "✓ Timeline Worker 已关闭" || echo "- Timeline Worker 未运行"
+pkill -9 -f "arq src.workers.timeline_worker" 2>/dev/null && echo "✓ Timeline Worker 已关闭" || echo "- Timeline Worker 未运行"
 
 # [3/5] 关闭 Render Worker
 echo "[3/5] 关闭 Render Worker..."
-pkill -9 -f "src.workers.render_worker" 2>/dev/null && echo "✓ Render Worker 已关闭" || echo "- Render Worker 未运行"
+pkill -9 -f "arq src.workers.render_worker" 2>/dev/null && echo "✓ Render Worker 已关闭" || echo "- Render Worker 未运行"
 
 # [4/5] 关闭管理后台
 echo "[4/5] 关闭管理后台..."
@@ -50,13 +50,13 @@ else
 fi
 
 # 检查 Workers
-if pgrep -f "src.workers.timeline_worker" > /dev/null; then
+if pgrep -f "arq src.workers.timeline_worker" > /dev/null; then
     echo "警告: Timeline Worker 仍在运行"
 else
     echo "✓ Timeline Worker 已停止"
 fi
 
-if pgrep -f "src.workers.render_worker" > /dev/null; then
+if pgrep -f "arq src.workers.render_worker" > /dev/null; then
     echo "警告: Render Worker 仍在运行"
 else
     echo "✓ Render Worker 已停止"

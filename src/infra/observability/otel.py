@@ -34,8 +34,6 @@ def configure_logging() -> None:
 
     注意：此函数可以被多次调用（例如在不同模块导入时），但会自动处理重复配置。
     """
-    settings = get_settings()
-
     # 创建 logs 目录
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)

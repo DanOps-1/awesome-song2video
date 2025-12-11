@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, List, Optional
-from uuid import uuid4
+from typing import List, Optional
 
 import structlog
 

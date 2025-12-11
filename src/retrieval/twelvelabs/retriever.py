@@ -6,7 +6,7 @@ from typing import List, Optional
 
 import structlog
 
-from src.retrieval.protocol import VideoClip, VideoRetriever
+from src.retrieval.protocol import VideoClip
 from src.retrieval.twelvelabs.client import TwelveLabsClient
 from src.retrieval.twelvelabs.query_rewriter import QueryRewriter
 from src.infra.config.settings import get_settings

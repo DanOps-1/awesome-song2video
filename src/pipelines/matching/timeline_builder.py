@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Optional, TypedDict
-import re
 from uuid import uuid4
-
-# 进度回调类型: async def callback(progress: float) -> None
-ProgressCallback = Callable[[float], Coroutine[Any, Any, None]]
 
 import structlog
 
 from src.infra.config.settings import get_settings
 from src.pipelines.lyrics_ingest.transcriber import transcribe_with_timestamps
-from src.services.matching.twelvelabs_client import client
 from src.services.matching.query_rewriter import QueryRewriter
+from src.services.matching.twelvelabs_client import client
+
+# 进度回调类型: async def callback(progress: float) -> None
+ProgressCallback = Callable[[float], Coroutine[Any, Any, None]]
 
 
 def calculate_overlap_ratio(start1: int, end1: int, start2: int, end2: int) -> float:

@@ -176,7 +176,6 @@ async def transcribe_with_timestamps(
     """
 
     audio = AudioSegment.from_file(audio_path)
-    audio_duration_sec = len(audio) / 1000.0
 
     temp = audio_path.with_suffix(".wav")
     audio.export(temp, format="wav")

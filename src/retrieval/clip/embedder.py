@@ -52,9 +52,7 @@ class CLIPEmbedder:
         if self.model is not None:
             return
 
-        import torch
         import open_clip
-        from PIL import Image
 
         try:
             logger.info("clip.loading_model", model=self.model_name)

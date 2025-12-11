@@ -722,5 +722,5 @@ def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) ->
 
 class WorkerSettings(BaseWorkerSettings):
     functions = ["src.workers.render_worker.render_mix"]
-    on_startup = "src.workers.render_worker.on_startup"
-    on_shutdown = "src.workers.render_worker.on_shutdown"
+    on_startup = on_startup
+    on_shutdown = on_shutdown
