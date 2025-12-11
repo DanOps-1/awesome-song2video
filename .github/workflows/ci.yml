@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint:
-    name: Lint & Format Check
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,10 +21,10 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      - name: Run ruff check
+      - name: Lint check
         run: ruff check src tests
 
-      - name: Run ruff format check
+      - name: Format check
         run: ruff format --check src tests
 
   type-check:
@@ -38,15 +38,30 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install type checking dependencies
-        run: |
-          pip install mypy types-redis
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
 
       - name: Run mypy
-        run: python -m mypy src --ignore-missing-imports --no-error-summary || true
+        run: python -m mypy src --ignore-missing-imports
 
-  # Tests 暂时禁用 - 需要 Whisper 等大型依赖，CI 环境磁盘空间不足
-  # test:
-  #   name: Tests
-  #   runs-on: ubuntu-latest
-  #   ...
+  test:
+    name: Contract Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Run contract tests
+        env:
+          REDIS_URL: redis://localhost:6379
+          POSTGRES_DSN: sqlite+aiosqlite:///./test.db
+          TL_API_KEY: test_key
+          TL_INDEX_ID: test_index
+        run: pytest tests/contract/ -v --tb=short --ignore=tests/contract/test_preview_manifest.py
