@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from src.timeline.models import Timeline, RenderLine
 
@@ -82,7 +82,7 @@ class EDLWriter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
-    def load_edl(self, edl_path: Path) -> dict:
+    def load_edl(self, edl_path: Path) -> dict[str, Any]:
         """加载 EDL 文件
 
         Args:
@@ -91,7 +91,8 @@ class EDLWriter:
         Returns:
             EDL 数据字典
         """
-        return json.loads(edl_path.read_text())
+        data: dict[str, Any] = json.loads(edl_path.read_text())
+        return data
 
     def build_ffmpeg_filter(
         self,
