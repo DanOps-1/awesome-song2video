@@ -13,6 +13,10 @@ import structlog
 from pathlib import Path
 from uuid import uuid4
 
+from src.audio.structure_analyzer import (
+    detect_intro_outro_boundaries,
+    merge_intro_outro_lines,
+)
 from src.domain.models.song_mix import LyricLine, VideoSegmentMatch
 from src.infra.config.settings import get_settings
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
@@ -164,6 +168,12 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
 
     状态流转: transcribed -> matching -> generated
     前提条件: lyrics_confirmed = True
+
+    增强功能：
+    - 使用 allin1 分析音乐结构，检测 intro/outro
+    - 合并开头的 credits 行为 (Intro)
+    - 合并结尾的短行为 (Outro)
+    - 边界以 API 歌词时间戳为准（ML 结果仅作参考）
     """
     logger.info("timeline_worker.match_started", mix_id=mix_id)
     mix = await repo.get_request(mix_id)
@@ -179,7 +189,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
     await repo.update_timeline_status(mix_id, "matching")
     await repo.update_timeline_progress(mix_id, 0.0)
 
-    # 获取音频时长
+    # 获取音频路径和时长
     audio_path = _resolve_audio_path(mix.audio_asset_id)
     audio_duration_ms = _get_audio_duration_ms(audio_path) if audio_path else 0
 
@@ -190,8 +200,8 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
         await repo.update_timeline_status(mix_id, "error")
         return
 
-    # 转换为 match_videos_for_lines 需要的格式
-    lines_for_match = [
+    # 转换为统一格式
+    lines_for_process = [
         {
             "text": line.original_text,
             "start_ms": line.start_time_ms,
@@ -200,26 +210,88 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
         for line in existing_lines
     ]
 
-    # 进度回调
-    async def on_progress(progress: float) -> None:
-        await repo.update_timeline_progress(mix_id, progress)
-        logger.info("timeline_worker.match_progress", mix_id=mix_id, progress=round(progress, 1))
+    # ====== 检测 intro/outro 边界并合并 ======
+    await repo.update_timeline_progress(mix_id, 5.0)
 
-    # 进行视频匹配
+    # 基于歌词时长检测 intro/outro 边界
+    # 规则：时长 >= 1秒 的歌词行被认为是"真正歌词"
+    intro_end_ms, outro_start_ms = detect_intro_outro_boundaries(
+        lyrics_lines=lines_for_process,
+        audio_duration_ms=audio_duration_ms,
+    )
+
+    logger.info(
+        "timeline_worker.boundaries_calculated",
+        mix_id=mix_id,
+        intro_end_ms=intro_end_ms,
+        outro_start_ms=outro_start_ms,
+        audio_duration_ms=audio_duration_ms,
+    )
+
+    # 合并 intro/outro 行
+    merged_lines = merge_intro_outro_lines(
+        lyrics_lines=lines_for_process,
+        intro_end_ms=intro_end_ms,
+        outro_start_ms=outro_start_ms,
+        audio_duration_ms=audio_duration_ms,
+    )
+
+    logger.info(
+        "timeline_worker.lines_merged",
+        mix_id=mix_id,
+        original_count=len(lines_for_process),
+        merged_count=len(merged_lines),
+    )
+
+    await repo.update_timeline_progress(mix_id, 10.0)
+
+    # ====== 进行视频匹配 ======
+    async def on_progress(progress: float) -> None:
+        # 进度范围: 10% - 90%
+        adjusted_progress = 10.0 + progress * 0.8
+        await repo.update_timeline_progress(mix_id, adjusted_progress)
+        logger.info("timeline_worker.match_progress", mix_id=mix_id, progress=round(adjusted_progress, 1))
+
     result = await builder.match_videos_for_lines(
-        lines=lines_for_match,
+        lines=merged_lines,
         audio_duration_ms=audio_duration_ms,
         on_progress=on_progress,
     )
 
-    # 更新歌词行的候选片段
-    for existing_line, result_line in zip(existing_lines, result.lines):
+    # ====== 保存结果 ======
+    await repo.update_timeline_progress(mix_id, 90.0)
+
+    # 清理旧的歌词行（因为合并后数量可能变化）
+    await repo.clear_lyrics(mix_id)
+
+    # 保存合并后的歌词行和视频候选
+    new_lines: list[LyricLine] = []
+    for index, result_line in enumerate(result.lines, start=1):
+        line_id = str(uuid4())
+
+        new_line = LyricLine(
+            id=line_id,
+            mix_request_id=mix_id,
+            line_no=index,
+            original_text=result_line.text,
+            start_time_ms=result_line.start_ms,
+            end_time_ms=result_line.end_ms,
+            status="matched",
+            auto_confidence=result_line.candidates[0]["score"] if result_line.candidates else 0.0,
+        )
+        new_lines.append(new_line)
+
+    # 批量插入歌词行
+    await repo.bulk_insert_lines(new_lines)
+
+    # 保存视频候选
+    for new_line, result_line in zip(new_lines, result.lines):
         candidates: list[VideoSegmentMatch] = []
         for candidate in result_line.candidates:
             candidates.append(
                 VideoSegmentMatch(
                     id=candidate["id"],
-                    line_id=existing_line.id,
+                    line_id=new_line.id,
                     source_video_id=candidate["source_video_id"],
                     index_id=get_settings().tl_index_id,
                     start_time_ms=candidate["start_time_ms"],
@@ -228,15 +300,16 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
                     generated_by="auto",
                 )
             )
-        await repo.replace_candidates(existing_line.id, candidates)
+        await repo.replace_candidates(new_line.id, candidates)
 
-        # 更新歌词行状态和置信度
-        existing_line.status = "matched"
-        existing_line.auto_confidence = candidates[0].score if candidates else 0.0
-        await repo.save_line(existing_line)
-
+    await repo.update_timeline_progress(mix_id, 100.0)
     await repo.update_timeline_status(mix_id, "generated")
-    logger.info("timeline_worker.match_completed", mix_id=mix_id, lines=len(result.lines))
+    logger.info(
+        "timeline_worker.match_completed",
+        mix_id=mix_id,
+        original_lines=len(existing_lines),
+        final_lines=len(new_lines),
+    )
 
 
 async def build_timeline(ctx: dict | None, mix_id: str) -> None:
