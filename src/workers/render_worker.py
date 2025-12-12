@@ -37,6 +37,7 @@ from src.pipelines.rendering.ffmpeg_script_builder import FFMpegScriptBuilder, R
 from src.services.matching.twelvelabs_video_fetcher import video_fetcher
 from src.services.render.placeholder_manager import cleanup_tmp_root, ensure_tmp_root
 from src.workers import BaseWorkerSettings
+from src.services.subtitle.translator import get_translator, is_english
 
 logger = structlog.get_logger(__name__)
 repo = RenderJobRepository()
@@ -161,9 +162,6 @@ async def _render_mix_impl(job_id: str) -> None:
                 output_video = audio_enriched
 
             await repo.update_progress(job_id, 85.0)  # 85%: 音频添加完成
-            # 生成字幕文件并烧录到视频
-            subtitle_file = _write_srt(render_lines, tmp_path / f"{job_id}.srt")
-            video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
             # 根据用户选择的宽高比确定输出分辨率
             aspect_ratio = getattr(mix, "aspect_ratio", DEFAULT_ASPECT_RATIO)
             target_width, target_height = ASPECT_RATIO_MAP.get(
@@ -175,6 +173,11 @@ async def _render_mix_impl(job_id: str) -> None:
                 aspect_ratio=aspect_ratio,
                 resolution=f"{target_width}x{target_height}",
             )
+            # 生成字幕文件（支持中英双语）并烧录到视频
+            subtitle_file = await _write_subtitle(
+                render_lines, tmp_path / f"{job_id}.ass", target_width, target_height
+            )
+            video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
             _burn_subtitles(
                 output_video,
                 subtitle_file,
@@ -516,31 +519,108 @@ async def _extract_clips(
     return clips, clip_stats
 
 
-def _write_srt(lines: Iterable[RenderLine], path: Path) -> Path:
-    """生成 SRT 字幕文件，时间戳相对于第一个歌词开始时间（从0开始）。
+async def _write_subtitle(
+    lines: Iterable[RenderLine], path: Path, target_width: int, target_height: int
+) -> Path:
+    """生成 ASS 字幕文件，支持中英双语。
 
-    因为音频会被裁剪到只包含歌词部分，所以字幕时间也需要相应调整。
+    如果歌词是英文，自动翻译成中文并显示双语字幕。
+    时间戳相对于第一个歌词开始时间（从0开始）。
     """
-    rows = []
     lines_list = list(lines)
     if not lines_list:
         path.write_text("", encoding="utf-8")
         return path
 
+    # 检测是否需要翻译（英文歌词）
+    lyrics_texts = [line.lyrics for line in lines_list]
+    sample_text = " ".join(lyrics_texts[:5])  # 取前5行判断语言
+    needs_translation = is_english(sample_text)
+
+    translations: list[str] = []
+    if needs_translation:
+        logger.info("render_worker.translating_lyrics", line_count=len(lyrics_texts))
+        translator = get_translator()
+        translations = await translator.translate_batch(lyrics_texts)
+        logger.info("render_worker.translation_done", translated_count=len(translations))
+
+    # 生成 ASS 文件
+    ass_content = _generate_ass(lines_list, translations, target_width, target_height)
+
+    # 改用 .ass 扩展名
+    ass_path = path.with_suffix(".ass")
+    ass_path.write_text(ass_content, encoding="utf-8")
+    return ass_path
+
+
+def _generate_ass(
+    lines: list[RenderLine],
+    translations: list[str],
+    target_width: int,
+    target_height: int,
+) -> str:
+    """生成 ASS 格式字幕内容。"""
     # 获取第一个歌词的开始时间作为基准
-    offset_ms = lines_list[0].lyric_start_ms
+    offset_ms = lines[0].lyric_start_ms if lines else 0
 
-    for idx, line in enumerate(lines_list, start=1):
-        # 减去偏移量，让字幕从 0 开始
-        start = _format_timestamp(line.lyric_start_ms - offset_ms)
-        end = _format_timestamp(line.lyric_end_ms - offset_ms)
-        rows.append(f"{idx}\n{start} --> {end}\n{line.lyrics}\n\n")
+    # 根据分辨率调整字体大小
+    # 基准：1080p 高度使用 48px 字体
+    font_scale = target_height / 1080
+    primary_font_size = int(48 * font_scale)
+    secondary_font_size = int(40 * font_scale)
+    margin_v = int(60 * font_scale)
 
-    path.write_text("".join(rows), encoding="utf-8")
-    return path
+    # ASS 文件头
+    header = f"""[Script Info]
+Title: Song Lyrics
+ScriptType: v4.00+
+PlayResX: {target_width}
+PlayResY: {target_height}
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Primary,Arial,{primary_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,10,10,{margin_v},1
+Style: Secondary,Arial,{secondary_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,{margin_v + primary_font_size + 10},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+    # 生成字幕事件
+    events = []
+    has_translations = translations and any(t for t in translations)
+
+    for idx, line in enumerate(lines):
+        start = _format_ass_timestamp(line.lyric_start_ms - offset_ms)
+        end = _format_ass_timestamp(line.lyric_end_ms - offset_ms)
+        text = line.lyrics.replace("\n", "\\N")
+
+        if has_translations and idx < len(translations) and translations[idx]:
+            # 双语：原文在上，翻译在下
+            translation = translations[idx].replace("\n", "\\N")
+            events.append(f"Dialogue: 0,{start},{end},Primary,,0,0,0,,{text}")
+            events.append(f"Dialogue: 0,{start},{end},Secondary,,0,0,0,,{translation}")
+        else:
+            # 单语
+            events.append(f"Dialogue: 0,{start},{end},Primary,,0,0,0,,{text}")
+
+    return header + "\n".join(events)
+
+
+def _format_ass_timestamp(ms: int) -> str:
+    """格式化 ASS 时间戳：H:MM:SS.cc"""
+    if ms < 0:
+        ms = 0
+    seconds, milli = divmod(ms, 1000)
+    minutes, sec = divmod(seconds, 60)
+    hours, minute = divmod(minutes, 60)
+    centisec = milli // 10  # ASS 使用厘秒
+    return f"{hours}:{minute:02d}:{sec:02d}.{centisec:02d}"
 
 
 def _format_timestamp(ms: int) -> str:
+    """格式化 SRT 时间戳（保留用于兼容）。"""
     seconds, milli = divmod(ms, 1000)
     minutes, sec = divmod(seconds, 60)
     hours, minute = divmod(minutes, 60)
@@ -746,26 +826,20 @@ def _burn_subtitles(
     target_width: int = 1920,
     target_height: int = 1080,
 ) -> None:
-    """将字幕烧录到视频中，并统一缩放到目标分辨率(16:9)。
+    """将字幕烧录到视频中，并统一缩放到目标分辨率。
 
     Args:
         video_path: 输入视频文件路径
-        subtitle_path: SRT 字幕文件路径
+        subtitle_path: ASS/SRT 字幕文件路径
         target_path: 输出视频文件路径
         target_width: 目标宽度（默认 1920）
         target_height: 目标高度（默认 1080）
 
     使用 FFmpeg 滤镜链：
-    1. scale: 缩放到目标分辨率，保持原始宽高比
-    2. pad: 添加黑边居中（letterbox/pillarbox）
-    3. subtitles: 烧录字幕
-
-    字幕样式：
-    - 字体：Arial (兼容性好)
-    - 大小：24
-    - 主颜色：白色
-    - 边框颜色：黑色
-    - 位置：底部居中
+    1. scale: 放大视频以覆盖整个目标区域
+    2. setsar: 设置像素宽高比
+    3. crop: 裁剪到目标尺寸
+    4. ass/subtitles: 烧录字幕（ASS格式使用ass滤镜，样式已内嵌）
     """
     logger.info(
         "render_worker.burn_subtitles",
@@ -775,18 +849,11 @@ def _burn_subtitles(
         target_resolution=f"{target_width}x{target_height}",
     )
 
-    # 注意：Windows 路径需要转义反斜杠
+    # 注意：Windows 路径需要转义反斜杠和冒号
     subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
 
     # 构建视频滤镜链：
-    # 1. scale: 放大视频以覆盖整个目标区域（使用较大的缩放因子）
-    # 2. setsar: 设置像素宽高比为1:1，避免显示变形
-    # 3. crop: 裁剪到目标尺寸（居中裁剪）
-    # 4. subtitles: 烧录字幕
-    #
     # 缩放逻辑：取宽度和高度缩放因子中较大的那个，确保视频能覆盖整个目标区域
-    # max(target_w/input_w, target_h/input_h) 作为统一缩放因子
-    # 这样短视频画面会被视频内容填满，不会有黑边
     scale_filter = (
         f"scale='max({target_width}/iw\\,{target_height}/ih)*iw'"
         f":'max({target_width}/iw\\,{target_height}/ih)*ih'"
@@ -794,7 +861,14 @@ def _burn_subtitles(
     )
     setsar_filter = "setsar=1"
     crop_filter = f"crop={target_width}:{target_height}"  # 居中裁剪
-    subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=40,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=60'"
+
+    # 根据字幕格式选择滤镜
+    if subtitle_path.suffix.lower() == ".ass":
+        # ASS 格式：样式已内嵌在文件中
+        subtitle_filter = f"ass={subtitle_path_str}"
+    else:
+        # SRT 格式：使用 subtitles 滤镜并指定样式
+        subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=48,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=60'"
 
     # 组合滤镜链
     vf_chain = f"{scale_filter},{setsar_filter},{crop_filter},{subtitle_filter}"
