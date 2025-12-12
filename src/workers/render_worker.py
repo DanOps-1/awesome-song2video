@@ -779,15 +779,24 @@ def _burn_subtitles(
     subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
 
     # 构建视频滤镜链：
-    # 1. scale: 保持宽高比缩放到目标尺寸内
-    # 2. pad: 添加黑边使其达到目标尺寸（居中）
-    # 3. subtitles: 烧录字幕
-    scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease"
+    # 1. scale: 计算缩放因子，保证视频完整显示在目标尺寸内（不裁剪）
+    # 2. setsar: 设置像素宽高比为1:1，避免显示变形
+    # 3. pad: 添加黑边使其达到目标尺寸（居中）
+    # 4. subtitles: 烧录字幕
+    #
+    # 缩放逻辑：取宽度和高度缩放因子中较小的那个，确保视频完整fit进目标尺寸
+    # min(target_w/input_w, target_h/input_h) 作为统一缩放因子
+    scale_filter = (
+        f"scale='min({target_width}/iw\\,{target_height}/ih)*iw'"
+        f":'min({target_width}/iw\\,{target_height}/ih)*ih'"
+        f":flags=lanczos"
+    )
+    setsar_filter = "setsar=1"
     pad_filter = f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black"
     subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'"
 
     # 组合滤镜链
-    vf_chain = f"{scale_filter},{pad_filter},{subtitle_filter}"
+    vf_chain = f"{scale_filter},{setsar_filter},{pad_filter},{subtitle_filter}"
 
     cmd = [
         "ffmpeg",
