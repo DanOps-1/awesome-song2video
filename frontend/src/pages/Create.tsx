@@ -340,7 +340,7 @@ export default function Create() {
 
             {createMutation.isError && (
               <p className="text-red-500 text-center">
-                创建失败，请重试
+                创建失败：{(createMutation.error as Error)?.message || '请重试'}
               </p>
             )}
           </form>
