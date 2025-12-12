@@ -713,15 +713,27 @@ def _attach_audio_track(
     _run_ffmpeg(cmd)
 
 
-def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) -> None:
-    """将字幕烧录到视频中。
+def _burn_subtitles(
+    video_path: Path,
+    subtitle_path: Path,
+    target_path: Path,
+    target_width: int = 1920,
+    target_height: int = 1080,
+) -> None:
+    """将字幕烧录到视频中，并统一缩放到目标分辨率(16:9)。
 
     Args:
         video_path: 输入视频文件路径
         subtitle_path: SRT 字幕文件路径
         target_path: 输出视频文件路径
+        target_width: 目标宽度（默认 1920）
+        target_height: 目标高度（默认 1080）
 
-    使用 FFmpeg subtitles 滤镜将字幕渲染到视频画面上。
+    使用 FFmpeg 滤镜链：
+    1. scale: 缩放到目标分辨率，保持原始宽高比
+    2. pad: 添加黑边居中（letterbox/pillarbox）
+    3. subtitles: 烧录字幕
+
     字幕样式：
     - 字体：Arial (兼容性好)
     - 大小：24
@@ -734,19 +746,22 @@ def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) ->
         video=video_path.as_posix(),
         subtitle=subtitle_path.as_posix(),
         target=target_path.as_posix(),
+        target_resolution=f"{target_width}x{target_height}",
     )
-
-    # 字幕滤镜参数
-    # force_style: 强制应用样式
-    # FontName=Arial: 使用 Arial 字体
-    # FontSize=24: 字体大小 24
-    # PrimaryColour=&HFFFFFF: 白色文字
-    # OutlineColour=&H000000: 黑色边框
-    # Outline=2: 边框宽度 2
-    # MarginV=50: 底部边距 50 像素
 
     # 注意：Windows 路径需要转义反斜杠
     subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
+
+    # 构建视频滤镜链：
+    # 1. scale: 保持宽高比缩放到目标尺寸内
+    # 2. pad: 添加黑边使其达到目标尺寸（居中）
+    # 3. subtitles: 烧录字幕
+    scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease"
+    pad_filter = f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black"
+    subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'"
+
+    # 组合滤镜链
+    vf_chain = f"{scale_filter},{pad_filter},{subtitle_filter}"
 
     cmd = [
         "ffmpeg",
@@ -754,7 +769,7 @@ def _burn_subtitles(video_path: Path, subtitle_path: Path, target_path: Path) ->
         "-i",
         video_path.as_posix(),
         "-vf",
-        f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'",
+        vf_chain,
         "-c:v",
         "libx264",
         "-preset",
