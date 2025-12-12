@@ -779,24 +779,25 @@ def _burn_subtitles(
     subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
 
     # 构建视频滤镜链：
-    # 1. scale: 计算缩放因子，保证视频完整显示在目标尺寸内（不裁剪）
+    # 1. scale: 放大视频以覆盖整个目标区域（使用较大的缩放因子）
     # 2. setsar: 设置像素宽高比为1:1，避免显示变形
-    # 3. pad: 添加黑边使其达到目标尺寸（居中）
+    # 3. crop: 裁剪到目标尺寸（居中裁剪）
     # 4. subtitles: 烧录字幕
     #
-    # 缩放逻辑：取宽度和高度缩放因子中较小的那个，确保视频完整fit进目标尺寸
-    # min(target_w/input_w, target_h/input_h) 作为统一缩放因子
+    # 缩放逻辑：取宽度和高度缩放因子中较大的那个，确保视频能覆盖整个目标区域
+    # max(target_w/input_w, target_h/input_h) 作为统一缩放因子
+    # 这样短视频画面会被视频内容填满，不会有黑边
     scale_filter = (
-        f"scale='min({target_width}/iw\\,{target_height}/ih)*iw'"
-        f":'min({target_width}/iw\\,{target_height}/ih)*ih'"
+        f"scale='max({target_width}/iw\\,{target_height}/ih)*iw'"
+        f":'max({target_width}/iw\\,{target_height}/ih)*ih'"
         f":flags=lanczos"
     )
     setsar_filter = "setsar=1"
-    pad_filter = f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black"
+    crop_filter = f"crop={target_width}:{target_height}"  # 居中裁剪
     subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=50'"
 
     # 组合滤镜链
-    vf_chain = f"{scale_filter},{setsar_filter},{pad_filter},{subtitle_filter}"
+    vf_chain = f"{scale_filter},{setsar_filter},{crop_filter},{subtitle_filter}"
 
     cmd = [
         "ffmpeg",
