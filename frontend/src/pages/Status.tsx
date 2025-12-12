@@ -119,8 +119,6 @@ export default function Status() {
       alert('操作失败，请重试')
     },
   })
-  // 预留给"重置全部"功能
-  void unconfirmLyricsMutation
 
   // 删除歌词行
   const deleteLineMutation = useMutation({
@@ -697,47 +695,28 @@ export default function Status() {
           {/* 视频确认界面 - generated 状态时显示 */}
           {timelineStatus === 'generated' && (
             <>
-              {/* 顶部提示和批量操作 */}
+              {/* 顶部提示和返回编辑按钮 */}
               <div className="p-4 bg-green-50 border-b border-green-100">
                 <div className="flex items-center justify-between">
                   <p className="text-green-800 text-sm">
                     点击歌词可编辑，编辑后点击「重新匹配」获取新的候选视频，确认后可生成。
                   </p>
-                  {!isSelectMode ? (
-                    <button
-                      onClick={() => setIsSelectMode(true)}
-                      className="ml-4 px-3 py-1.5 text-sm text-red-600 border border-red-300 rounded-lg hover:bg-red-50 active:scale-95 active:bg-red-100 transition-all flex-shrink-0"
-                    >
-                      批量删除
-                    </button>
-                  ) : (
-                    <div className="ml-4 flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={toggleSelectAll}
-                        className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 active:scale-95 active:bg-gray-100 transition-all"
-                      >
-                        {selectedLineIds.size === candidateLines.length ? '取消全选' : '全选'}
-                      </button>
-                      <button
-                        onClick={handleBatchDelete}
-                        disabled={selectedLineIds.size === 0 || deleteLinesBatchMutation.isPending}
-                        className="px-3 py-1.5 text-sm text-white bg-red-500 rounded-lg hover:bg-red-600 active:scale-95 active:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                      >
-                        {deleteLinesBatchMutation.isPending ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                        删除 ({selectedLineIds.size})
-                      </button>
-                      <button
-                        onClick={exitSelectMode}
-                        className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700 active:scale-95 transition-all"
-                      >
-                        取消
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    onClick={() => {
+                      if (confirm('返回将清除已匹配的视频，确定要返回修改歌词吗？')) {
+                        unconfirmLyricsMutation.mutate()
+                      }
+                    }}
+                    disabled={unconfirmLyricsMutation.isPending}
+                    className="ml-4 px-3 py-1.5 text-sm text-orange-600 border border-orange-300 rounded-lg hover:bg-orange-50 active:scale-95 active:bg-orange-100 transition-all flex-shrink-0 flex items-center gap-1"
+                  >
+                    {unconfirmLyricsMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowLeft className="w-4 h-4" />
+                    )}
+                    返回修改歌词
+                  </button>
                 </div>
               </div>
 
@@ -762,39 +741,21 @@ export default function Status() {
                     <div
                       key={line.id}
                       className={`p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${
-                        isSelectMode && selectedLineIds.has(line.id) ? 'bg-red-50' :
                         line.candidates.length === 0 ? 'bg-orange-50/50' : ''
                       }`}
                     >
-                      {/* 左侧：多选框或状态图标 */}
-                      {isSelectMode ? (
-                        <button
-                          onClick={() => toggleLineSelection(line.id)}
-                          className="flex-shrink-0 w-8 h-8 flex items-center justify-center active:scale-90 transition-transform"
-                        >
-                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                            selectedLineIds.has(line.id)
-                              ? 'bg-red-500 border-red-500'
-                              : 'border-gray-300 hover:border-red-400'
-                          }`}>
-                            {selectedLineIds.has(line.id) && (
-                              <Check className="w-3 h-3 text-white" />
-                            )}
-                          </div>
-                        </button>
-                      ) : (
-                        <div className="flex-shrink-0">
-                          {line.status === 'locked' ? (
-                            <CheckCircle className="w-5 h-5 text-green-500" />
-                          ) : line.candidates.length > 0 ? (
-                            <div className="w-5 h-5 border-2 border-purple-400 rounded-full" />
-                          ) : (
-                            <span title="使用默认视频">
-                              <AlertCircle className="w-5 h-5 text-orange-500" />
-                            </span>
-                          )}
-                        </div>
-                      )}
+                      {/* 左侧：状态图标 */}
+                      <div className="flex-shrink-0">
+                        {line.status === 'locked' ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : line.candidates.length > 0 ? (
+                          <div className="w-5 h-5 border-2 border-purple-400 rounded-full" />
+                        ) : (
+                          <span title="使用默认视频">
+                            <AlertCircle className="w-5 h-5 text-orange-500" />
+                          </span>
+                        )}
+                      </div>
 
                       {/* 中间：歌词内容（可编辑） */}
                       <div className="flex-1 min-w-0">
@@ -827,19 +788,11 @@ export default function Status() {
                           </div>
                         ) : (
                           <div
-                            className={`group flex items-center gap-2 ${!isSelectMode ? 'cursor-pointer' : ''}`}
-                            onClick={() => {
-                              if (isSelectMode) {
-                                toggleLineSelection(line.id)
-                              } else {
-                                startEdit(line.id, line.original_text)
-                              }
-                            }}
+                            className="group flex items-center gap-2 cursor-pointer"
+                            onClick={() => startEdit(line.id, line.original_text)}
                           >
                             <p className="text-gray-900">{line.original_text}</p>
-                            {!isSelectMode && (
-                              <Edit3 className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            )}
+                            <Edit3 className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                             {line.candidates.length === 0 && (
                               <span className="flex-shrink-0 px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded">
                                 未匹配
@@ -855,108 +808,18 @@ export default function Status() {
                         </p>
                       </div>
 
-                      {/* 右侧：操作按钮 */}
-                      {!isSelectMode && (
-                        <div className="flex items-center gap-2">
-                          {line.status !== 'locked' && line.candidates.length > 0 && (
-                            <button
-                              onClick={() => handleLockOne(line.id, line.candidates[0].id)}
-                              disabled={lockMutation.isPending}
-                              className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 active:scale-95 active:bg-purple-300 disabled:opacity-50 disabled:active:scale-100 transition-all"
-                            >
-                              {lockMutation.isPending ? '...' : '确认视频'}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteLine(line.id, line.original_text)}
-                            disabled={deleteLineMutation.isPending}
-                            className="flex-shrink-0 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 active:scale-90 active:bg-red-100 rounded-lg transition-all disabled:opacity-50"
-                            title="删除此行"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                      {/* 右侧：确认视频按钮 */}
+                      {line.status !== 'locked' && line.candidates.length > 0 && (
+                        <button
+                          onClick={() => handleLockOne(line.id, line.candidates[0].id)}
+                          disabled={lockMutation.isPending}
+                          className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 active:scale-95 active:bg-purple-300 disabled:opacity-50 disabled:active:scale-100 transition-all"
+                        >
+                          {lockMutation.isPending ? '...' : '确认视频'}
+                        </button>
                       )}
                     </div>
                   ))
-                )}
-              </div>
-
-              {/* 新增歌词区域 */}
-              <div className="p-4 border-t border-gray-100">
-                {showAddForm ? (
-                  <div className="bg-purple-50 rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium text-purple-900">添加新歌词</h4>
-                      <button
-                        onClick={() => setShowAddForm(false)}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="输入歌词内容"
-                      value={newLyricText}
-                      onChange={(e) => setNewLyricText(e.target.value)}
-                      className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <label className="text-xs text-gray-500 mb-1 block">开始时间 (秒)</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="如: 26.5"
-                          value={newLyricStartSec}
-                          onChange={(e) => setNewLyricStartSec(e.target.value)}
-                          className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs text-gray-500 mb-1 block">结束时间 (秒)</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="如: 28.0"
-                          value={newLyricEndSec}
-                          onChange={(e) => setNewLyricEndSec(e.target.value)}
-                          className="w-full px-3 py-2 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => setShowAddForm(false)}
-                        className="px-4 py-2 text-gray-600 hover:bg-gray-100 active:scale-95 active:bg-gray-200 rounded-lg transition-all"
-                      >
-                        取消
-                      </button>
-                      <button
-                        onClick={handleAddLine}
-                        disabled={addLineMutation.isPending}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 active:scale-95 active:bg-purple-800 disabled:opacity-50 disabled:active:scale-100 flex items-center gap-2 transition-all"
-                      >
-                        {addLineMutation.isPending ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            添加中...
-                          </>
-                        ) : (
-                          '确认添加'
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setShowAddForm(true)}
-                    className="w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-purple-300 text-purple-600 rounded-lg hover:bg-purple-50 hover:border-purple-400 active:scale-[0.98] active:bg-purple-100 transition-all"
-                  >
-                    <Plus className="w-5 h-5" />
-                    添加歌词
-                  </button>
                 )}
               </div>
 
