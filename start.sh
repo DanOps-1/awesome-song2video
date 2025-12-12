@@ -36,10 +36,9 @@ fi
 
 # [1/5] 启动后端
 echo "[1/5] 启动后端 (端口 8000)..."
-if ! check_port 8000; then
-    pkill -9 -f "uvicorn.*8000" 2>/dev/null || true
-    sleep 2
-fi
+# 总是先杀掉旧进程，确保加载最新代码
+pkill -9 -f "uvicorn.*8000" 2>/dev/null || true
+sleep 2
 nohup uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
