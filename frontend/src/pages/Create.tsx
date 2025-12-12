@@ -74,14 +74,16 @@ export default function Create() {
       const uploadResult = await uploadAudio(audioFile)
 
       // 创建混剪任务
-      const mix = await createMix({
+      const createPayload = {
         song_title: formData.song_title,
         artist: formData.artist || undefined,
         source_type: 'upload',
         audio_asset_id: uploadResult.id,
         language: formData.language,
         aspect_ratio: formData.aspect_ratio,
-      })
+      }
+      console.log('Creating mix with payload:', createPayload)
+      const mix = await createMix(createPayload)
 
       // 根据用户选择的模式获取歌词
       if (formData.lyricsMode === 'search') {
