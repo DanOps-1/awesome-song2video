@@ -794,7 +794,7 @@ def _burn_subtitles(
     )
     setsar_filter = "setsar=1"
     crop_filter = f"crop={target_width}:{target_height}"  # 居中裁剪
-    subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=16,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=1,MarginV=30'"
+    subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=40,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=60'"
 
     # 组合滤镜链
     vf_chain = f"{scale_filter},{setsar_filter},{crop_filter},{subtitle_filter}"
