@@ -207,7 +207,8 @@ async def _render_mix_impl(job_id: str) -> None:
             output_dir = Path("artifacts/renders")
             output_dir.mkdir(parents=True, exist_ok=True)
             final_output = output_dir / f"{job_id}.mp4"
-            final_subtitle = output_dir / f"{job_id}.srt"
+            # 保持原始字幕扩展名（.ass 或 .srt）
+            final_subtitle = output_dir / f"{job_id}{subtitle_file.suffix}"
             shutil.copy2(output_video, final_output)
             shutil.copy2(subtitle_file, final_subtitle)
 
