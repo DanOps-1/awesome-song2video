@@ -27,6 +27,7 @@ class MixCreateRequest(BaseModel):
     audio_asset_id: str | None = None
     lyrics_text: str | None = None
     language: str = "auto"
+    aspect_ratio: str = Field(default="16:9", pattern="^(16:9|4:3)$")  # 输出视频宽高比
     auto_generate: bool = True
 
 
@@ -48,6 +49,7 @@ class MixResponse(BaseModel):
     timeline_progress: float = 0.0
     lyrics_confirmed: bool = False
     render_status: str
+    aspect_ratio: str = "16:9"
 
 
 class MixDetailResponse(MixResponse):
@@ -99,6 +101,7 @@ async def create_mix(payload: MixCreateRequest) -> MixResponse:
         audio_asset_id=payload.audio_asset_id,
         lyrics_text=payload.lyrics_text or "",
         language=payload.language,
+        aspect_ratio=payload.aspect_ratio,
         owner_id="system",
     )
     saved = await repo.create_request(mix)
@@ -109,6 +112,7 @@ async def create_mix(payload: MixCreateRequest) -> MixResponse:
         timeline_progress=saved.timeline_progress,
         lyrics_confirmed=saved.lyrics_confirmed,
         render_status=saved.render_status,
+        aspect_ratio=saved.aspect_ratio,
     )
 
 
@@ -140,6 +144,7 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
         timeline_progress=mix.timeline_progress,
         lyrics_confirmed=mix.lyrics_confirmed,
         render_status=mix.render_status,
+        aspect_ratio=mix.aspect_ratio,
         lines=line_responses,
     )
 

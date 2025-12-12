@@ -46,6 +46,13 @@ render_semaphore = asyncio.Semaphore(max(1, settings.render_concurrency_limit))
 clip_config = RenderClipConfig.from_settings(settings)
 _config_watcher: RenderConfigWatcher | None = None
 
+# 宽高比到分辨率的映射
+ASPECT_RATIO_MAP: dict[str, tuple[int, int]] = {
+    "16:9": (1920, 1080),
+    "4:3": (1440, 1080),
+}
+DEFAULT_ASPECT_RATIO = "16:9"
+
 
 async def render_mix(ctx: dict | None, job_id: str) -> None:
     async with render_semaphore:
@@ -155,7 +162,24 @@ async def _render_mix_impl(job_id: str) -> None:
             # 生成字幕文件并烧录到视频
             subtitle_file = _write_srt(render_lines, tmp_path / f"{job_id}.srt")
             video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
-            _burn_subtitles(output_video, subtitle_file, video_with_subtitles)
+            # 根据用户选择的宽高比确定输出分辨率
+            aspect_ratio = getattr(mix, "aspect_ratio", DEFAULT_ASPECT_RATIO)
+            target_width, target_height = ASPECT_RATIO_MAP.get(
+                aspect_ratio, ASPECT_RATIO_MAP[DEFAULT_ASPECT_RATIO]
+            )
+            logger.info(
+                "render_worker.output_resolution",
+                job_id=job_id,
+                aspect_ratio=aspect_ratio,
+                resolution=f"{target_width}x{target_height}",
+            )
+            _burn_subtitles(
+                output_video,
+                subtitle_file,
+                video_with_subtitles,
+                target_width=target_width,
+                target_height=target_height,
+            )
             output_video = video_with_subtitles
             await repo.update_progress(job_id, 95.0)  # 95%: 字幕烧录完成
 

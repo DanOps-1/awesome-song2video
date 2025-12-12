@@ -80,6 +80,7 @@ class SongMixRequest(SQLModel, table=True):
     audio_asset_id: Optional[str] = None
     lyrics_text: str
     language: str
+    aspect_ratio: str = Field(default="16:9")  # 输出视频宽高比: "16:9" 或 "4:3"
     timeline_status: str = Field(default="pending")
     timeline_progress: float = Field(default=0.0)  # 时间线生成进度 0-100
     lyrics_confirmed: bool = Field(default=False)  # 歌词是否已确认
