@@ -8,11 +8,25 @@ from functools import lru_cache
 
 import structlog
 from langdetect import detect, LangDetectException
-from openai import AsyncOpenAI
 
 from src.infra.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# 尝试导入可选依赖
+try:
+    from openai import AsyncOpenAI
+    HAS_OPENAI = True
+except ImportError:
+    HAS_OPENAI = False
+    AsyncOpenAI = None
+
+try:
+    import translators as ts
+    HAS_TRANSLATORS = True
+except ImportError:
+    HAS_TRANSLATORS = False
+    ts = None
 
 
 def is_english(text: str) -> bool:
@@ -37,7 +51,7 @@ def is_english(text: str) -> bool:
 
 
 class LyricsTranslator:
-    """使用 LLM 将英文歌词翻译为中文。"""
+    """将英文歌词翻译为中文，支持多种翻译后端。"""
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -45,15 +59,19 @@ class LyricsTranslator:
         self._base_url = settings.deepseek_base_url
         self._client: AsyncOpenAI | None = None
         self._cache: dict[str, str] = {}
+        self._use_free_api = False  # 是否使用免费API
 
-        if self._api_key:
+        if HAS_OPENAI and self._api_key:
             self._client = AsyncOpenAI(
                 api_key=self._api_key,
                 base_url=self._base_url,
             )
-            logger.info("lyrics_translator.initialized")
+            logger.info("lyrics_translator.initialized", backend="deepseek")
+        elif HAS_TRANSLATORS:
+            self._use_free_api = True
+            logger.info("lyrics_translator.initialized", backend="free_api")
         else:
-            logger.warning("lyrics_translator.disabled", reason="no_api_key")
+            logger.warning("lyrics_translator.disabled", reason="no_backend_available")
 
     async def translate_batch(self, lines: list[str]) -> list[str]:
         """
@@ -65,11 +83,11 @@ class LyricsTranslator:
         Returns:
             中文翻译列表，与输入顺序对应
         """
-        if not self._client:
+        if not self._client and not self._use_free_api:
             return [""] * len(lines)
 
         # 检查缓存
-        results = []
+        results: list[str | None] = []
         uncached_indices = []
         uncached_lines = []
 
@@ -82,22 +100,73 @@ class LyricsTranslator:
                 uncached_lines.append(line)
 
         if not uncached_lines:
-            return results
+            return [r or "" for r in results]
 
         # 批量翻译未缓存的行
+        translations: list[str] = []
         try:
-            translations = await self._translate_lines(uncached_lines)
+            if self._client:
+                # 尝试使用 DeepSeek API
+                translations = await self._translate_lines(uncached_lines)
+            else:
+                translations = []
+
+            # 如果 DeepSeek 失败或未配置，使用免费 API
+            if not translations or not any(translations):
+                if self._use_free_api or HAS_TRANSLATORS:
+                    logger.info("lyrics_translator.fallback_to_free_api")
+                    translations = await self._translate_with_free_api(uncached_lines)
+
             for i, idx in enumerate(uncached_indices):
                 translation = translations[i] if i < len(translations) else ""
                 results[idx] = translation
-                self._cache[uncached_lines[i]] = translation
+                if translation:
+                    self._cache[uncached_lines[i]] = translation
+
         except Exception as e:
             logger.error("lyrics_translator.batch_failed", error=str(e))
-            # 失败时返回空翻译
-            for idx in uncached_indices:
-                results[idx] = ""
+            # 尝试免费 API 作为最后手段
+            if HAS_TRANSLATORS:
+                try:
+                    translations = await self._translate_with_free_api(uncached_lines)
+                    for i, idx in enumerate(uncached_indices):
+                        translation = translations[i] if i < len(translations) else ""
+                        results[idx] = translation
+                        if translation:
+                            self._cache[uncached_lines[i]] = translation
+                except Exception as e2:
+                    logger.error("lyrics_translator.free_api_failed", error=str(e2))
+                    for idx in uncached_indices:
+                        results[idx] = ""
+            else:
+                for idx in uncached_indices:
+                    results[idx] = ""
 
-        return results
+        return [r or "" for r in results]
+
+    async def _translate_with_free_api(self, lines: list[str]) -> list[str]:
+        """使用免费翻译 API 翻译。"""
+        if not HAS_TRANSLATORS:
+            return [""] * len(lines)
+
+        translations = []
+        for line in lines:
+            try:
+                # 使用 bing 翻译（稳定性较好）
+                result = await asyncio.to_thread(
+                    ts.translate_text,
+                    line,
+                    translator="bing",
+                    from_language="en",
+                    to_language="zh",
+                )
+                translations.append(result or "")
+                logger.debug("lyrics_translator.free_api_success", line=line[:30], result=result[:30] if result else "")
+            except Exception as e:
+                logger.warning("lyrics_translator.free_api_line_failed", line=line[:30], error=str(e))
+                translations.append("")
+
+        return translations
 
     async def _translate_lines(self, lines: list[str]) -> list[str]:
         """调用 LLM 批量翻译。"""
