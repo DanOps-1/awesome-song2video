@@ -21,7 +21,7 @@ settings = get_settings()
 
 
 class MixCreateRequest(BaseModel):
-    song_title: str = Field(..., min_length=1, max_length=128)
+    song_title: str = Field(..., min_length=1, max_length=500)
     artist: str | None = None
     source_type: str = Field(..., pattern="^(upload|catalog|manual)$")
     audio_asset_id: str | None = None
