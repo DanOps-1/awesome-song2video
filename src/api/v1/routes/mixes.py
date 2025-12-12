@@ -27,7 +27,7 @@ class MixCreateRequest(BaseModel):
     audio_asset_id: str | None = None
     lyrics_text: str | None = None
     language: str = "auto"
-    aspect_ratio: str = Field(default="16:9", pattern="^(16:9|4:3)$")  # 输出视频宽高比
+    aspect_ratio: str = Field(default="16:9", pattern="^(16:9|9:16|1:1|4:3)$")  # 输出视频宽高比
     auto_generate: bool = True
 
 

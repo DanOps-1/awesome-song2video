@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
-import { Music, Upload, ArrowLeft, Loader2, X, FileAudio } from 'lucide-react'
+import { Music, Upload, ArrowLeft, Loader2, X, FileAudio, Monitor, Smartphone, Square, Tv } from 'lucide-react'
 import { createMix, transcribeLyrics, fetchLyrics, uploadAudio } from '@/api/mix'
 
 export default function Create() {
@@ -14,6 +14,7 @@ export default function Create() {
     artist: '',
     language: 'auto',
     lyricsMode: 'search' as 'search' | 'ai',  // search=搜索歌词(推荐), ai=AI识别
+    aspect_ratio: '9:16' as '16:9' | '9:16' | '1:1' | '4:3',  // 默认竖屏（短视频主流）
   })
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -79,6 +80,7 @@ export default function Create() {
         source_type: 'upload',
         audio_asset_id: uploadResult.id,
         language: formData.language,
+        aspect_ratio: formData.aspect_ratio,
       })
 
       // 根据用户选择的模式获取歌词
@@ -227,6 +229,52 @@ export default function Create() {
                 <option value="zh">中文</option>
                 <option value="en">英文</option>
               </select>
+            </div>
+
+            {/* 视频比例选择 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                视频比例
+              </label>
+              <div className="grid grid-cols-4 gap-3">
+                {[
+                  { value: '9:16', label: '9:16', desc: '竖屏', icon: Smartphone, platform: '抖音/快手' },
+                  { value: '16:9', label: '16:9', desc: '横屏', icon: Monitor, platform: 'B站/YouTube' },
+                  { value: '1:1', label: '1:1', desc: '方形', icon: Square, platform: '微信/Instagram' },
+                  { value: '4:3', label: '4:3', desc: '传统', icon: Tv, platform: '经典比例' },
+                ].map((ratio) => (
+                  <label
+                    key={ratio.value}
+                    className={`
+                      relative flex flex-col items-center p-3 border-2 rounded-xl cursor-pointer transition-all
+                      ${formData.aspect_ratio === ratio.value
+                        ? 'border-purple-500 bg-purple-50'
+                        : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <input
+                      type="radio"
+                      name="aspect_ratio"
+                      value={ratio.value}
+                      checked={formData.aspect_ratio === ratio.value}
+                      onChange={(e) => setFormData(prev => ({ ...prev, aspect_ratio: e.target.value as '16:9' | '9:16' | '1:1' | '4:3' }))}
+                      className="sr-only"
+                    />
+                    <ratio.icon className={`w-6 h-6 mb-1 ${formData.aspect_ratio === ratio.value ? 'text-purple-600' : 'text-gray-400'}`} />
+                    <span className={`font-medium text-sm ${formData.aspect_ratio === ratio.value ? 'text-purple-700' : 'text-gray-700'}`}>
+                      {ratio.label}
+                    </span>
+                    <span className="text-xs text-gray-500">{ratio.desc}</span>
+                    <span className="text-xs text-gray-400 mt-0.5">{ratio.platform}</span>
+                    {ratio.value === '9:16' && (
+                      <span className="absolute -top-2 -right-2 px-1.5 py-0.5 text-xs bg-green-500 text-white rounded-full">
+                        热门
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
             </div>
 
             <div>

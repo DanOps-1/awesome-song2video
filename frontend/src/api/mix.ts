@@ -52,6 +52,7 @@ export async function createMix(data: {
   audio_asset_id?: string
   lyrics_text?: string
   language?: string
+  aspect_ratio?: '16:9' | '9:16' | '1:1' | '4:3'
 }): Promise<MixResponse> {
   const { data: resp } = await apiClient.post('/mixes', {
     ...data,

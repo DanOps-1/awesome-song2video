@@ -46,10 +46,12 @@ render_semaphore = asyncio.Semaphore(max(1, settings.render_concurrency_limit))
 clip_config = RenderClipConfig.from_settings(settings)
 _config_watcher: RenderConfigWatcher | None = None
 
-# 宽高比到分辨率的映射
+# 宽高比到分辨率的映射（短视频常用比例）
 ASPECT_RATIO_MAP: dict[str, tuple[int, int]] = {
-    "16:9": (1920, 1080),
-    "4:3": (1440, 1080),
+    "16:9": (1920, 1080),  # 横屏 - YouTube/B站
+    "9:16": (1080, 1920),  # 竖屏 - 抖音/TikTok/快手/小红书
+    "1:1": (1080, 1080),   # 正方形 - Instagram/微信
+    "4:3": (1440, 1080),   # 传统比例
 }
 DEFAULT_ASPECT_RATIO = "16:9"
 
