@@ -173,9 +173,14 @@ async def _render_mix_impl(job_id: str) -> None:
                 aspect_ratio=aspect_ratio,
                 resolution=f"{target_width}x{target_height}",
             )
-            # 生成字幕文件（支持中英双语）并烧录到视频
+            # 生成字幕文件（根据用户选择决定是否启用双语）并烧录到视频
+            enable_bilingual = getattr(job, "bilingual_subtitle", False)
             subtitle_file = await _write_subtitle(
-                render_lines, tmp_path / f"{job_id}.ass", target_width, target_height
+                render_lines,
+                tmp_path / f"{job_id}.ass",
+                target_width,
+                target_height,
+                enable_bilingual=enable_bilingual,
             )
             video_with_subtitles = tmp_path / f"{job_id}_with_subtitles.mp4"
             _burn_subtitles(
@@ -521,29 +526,44 @@ async def _extract_clips(
 
 
 async def _write_subtitle(
-    lines: Iterable[RenderLine], path: Path, target_width: int, target_height: int
+    lines: Iterable[RenderLine],
+    path: Path,
+    target_width: int,
+    target_height: int,
+    enable_bilingual: bool = False,
 ) -> Path:
     """生成 ASS 字幕文件，支持中英双语。
 
-    如果歌词是英文，自动翻译成中文并显示双语字幕。
+    如果启用双语且歌词是英文，自动翻译成中文并显示双语字幕。
     时间戳相对于第一个歌词开始时间（从0开始）。
+
+    Args:
+        lines: 渲染行列表
+        path: 字幕文件输出路径
+        target_width: 目标视频宽度
+        target_height: 目标视频高度
+        enable_bilingual: 是否启用双语字幕（用户选择）
     """
     lines_list = list(lines)
     if not lines_list:
         path.write_text("", encoding="utf-8")
         return path
 
-    # 检测是否需要翻译（英文歌词）
-    lyrics_texts = [line.lyrics for line in lines_list]
-    sample_text = " ".join(lyrics_texts[:5])  # 取前5行判断语言
-    needs_translation = is_english(sample_text)
-
     translations: list[str] = []
-    if needs_translation:
-        logger.info("render_worker.translating_lyrics", line_count=len(lyrics_texts))
-        translator = get_translator()
-        translations = await translator.translate_batch(lyrics_texts)
-        logger.info("render_worker.translation_done", translated_count=len(translations))
+
+    # 只有用户启用双语且歌词是英文时才翻译
+    if enable_bilingual:
+        lyrics_texts = [line.lyrics for line in lines_list]
+        sample_text = " ".join(lyrics_texts[:5])  # 取前5行判断语言
+        needs_translation = is_english(sample_text)
+
+        if needs_translation:
+            logger.info("render_worker.translating_lyrics", line_count=len(lyrics_texts))
+            translator = get_translator()
+            translations = await translator.translate_batch(lyrics_texts)
+            logger.info("render_worker.translation_done", translated_count=len(translations))
+        else:
+            logger.info("render_worker.skip_translation", reason="not_english")
 
     # 生成 ASS 文件
     ass_content = _generate_ass(lines_list, translations, target_width, target_height)

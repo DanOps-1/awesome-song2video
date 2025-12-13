@@ -36,6 +36,9 @@ export default function Status() {
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [selectedLineIds, setSelectedLineIds] = useState<Set<string>>(new Set())
 
+  // 渲染选项
+  const [bilingualSubtitle, setBilingualSubtitle] = useState(false)
+
   // 获取混剪任务状态（包含时间线进度和歌词行）
   const { data: mixData, isLoading: mixLoading } = useQuery({
     queryKey: ['mix', mixId],
@@ -180,7 +183,7 @@ export default function Status() {
   })
 
   const renderMutation = useMutation({
-    mutationFn: () => submitRender(mixId!),
+    mutationFn: () => submitRender(mixId!, { bilingual_subtitle: bilingualSubtitle }),
     onSuccess: (data) => {
       sessionStorage.setItem(`job_${mixId}`, data.job_id)
       navigate(`/result/${mixId}`)
@@ -821,6 +824,22 @@ export default function Status() {
                     </div>
                   ))
                 )}
+              </div>
+
+              {/* 渲染选项 */}
+              <div className="p-4 border-t border-gray-100 bg-white">
+                <label className="flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={bilingualSubtitle}
+                    onChange={(e) => setBilingualSubtitle(e.target.checked)}
+                    className="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="text-gray-900 font-medium">中英双语字幕</span>
+                    <p className="text-xs text-gray-500">英文歌词将自动翻译为中文，显示双语字幕</p>
+                  </div>
+                </label>
               </div>
 
               {/* Actions */}

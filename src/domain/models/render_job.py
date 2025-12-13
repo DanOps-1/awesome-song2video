@@ -23,6 +23,7 @@ class RenderJob(SQLModel, table=True):
     submitted_at: datetime | None = Field(default_factory=datetime.utcnow)
     finished_at: datetime | None = None
     metrics: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    bilingual_subtitle: bool = Field(default=False)  # 是否生成中英双语字幕
 
     def upsert_clip_stats(self, clip_stats: dict[str, Any]) -> None:
         """更新 render.clip_stats 统计数据。"""

@@ -125,10 +125,20 @@ export async function getPreview(mixId: string): Promise<PreviewManifest> {
   return data
 }
 
-export async function submitRender(mixId: string): Promise<{ job_id: string; status: string }> {
+export interface RenderOptions {
+  resolution?: string
+  frame_rate?: number
+  bilingual_subtitle?: boolean  // 是否生成中英双语字幕
+}
+
+export async function submitRender(
+  mixId: string,
+  options: RenderOptions = {}
+): Promise<{ job_id: string; status: string }> {
   const { data } = await apiClient.post(`/mixes/${mixId}/render`, {
-    resolution: '1080p',
-    frame_rate: 25,
+    resolution: options.resolution ?? '1080p',
+    frame_rate: options.frame_rate ?? 25,
+    bilingual_subtitle: options.bilingual_subtitle ?? false,
   })
   return data
 }

@@ -25,6 +25,7 @@ settings = get_settings()
 class RenderOptions(BaseModel):
     resolution: str = "1080p"
     frame_rate: int = 25
+    bilingual_subtitle: bool = False  # 是否生成中英双语字幕
 
 
 class RenderResponse(BaseModel):
@@ -44,6 +45,7 @@ async def submit_render(
         mix_request_id=mix_id,
         job_status="queued",
         ffmpeg_script="",
+        bilingual_subtitle=body.bilingual_subtitle,
     )
     await repo.save(job)
     # 更新 mix 的 render_status 为 "queued"
