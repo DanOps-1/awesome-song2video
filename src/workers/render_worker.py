@@ -836,11 +836,11 @@ def _burn_subtitles(
         target_width: 目标宽度（默认 1920）
         target_height: 目标高度（默认 1080）
 
-    使用 FFmpeg 滤镜链：
-    1. scale: 放大视频以覆盖整个目标区域
-    2. setsar: 设置像素宽高比
-    3. crop: 裁剪到目标尺寸
-    4. ass/subtitles: 烧录字幕（ASS格式使用ass滤镜，样式已内嵌）
+    使用 FFmpeg 滤镜链（模糊背景方式）：
+    1. 背景层：放大+模糊+裁剪，填满整个画面
+    2. 前景层：等比缩放保持完整内容
+    3. 叠加：前景居中叠加在背景上
+    4. 字幕：烧录字幕
     """
     logger.info(
         "render_worker.burn_subtitles",
@@ -853,26 +853,39 @@ def _burn_subtitles(
     # 注意：Windows 路径需要转义反斜杠和冒号
     subtitle_path_str = subtitle_path.as_posix().replace("\\", "/").replace(":", "\\:")
 
-    # 构建视频滤镜链：
-    # 缩放逻辑：取宽度和高度缩放因子中较大的那个，确保视频能覆盖整个目标区域
-    scale_filter = (
+    # 构建视频滤镜链（模糊背景 + 完整前景）：
+    # [0:v] split 分成两路
+    # 背景层：放大填满 -> 模糊 -> 裁剪到目标尺寸
+    # 前景层：等比缩放保持完整内容
+    # overlay：前景居中叠加在背景上
+
+    # 背景：放大到覆盖整个目标区域，然后模糊，再裁剪
+    bg_scale = (
         f"scale='max({target_width}/iw\\,{target_height}/ih)*iw'"
         f":'max({target_width}/iw\\,{target_height}/ih)*ih'"
+        f":flags=fast_bilinear"
+    )
+    bg_filter = f"{bg_scale},boxblur=20:5,crop={target_width}:{target_height}"
+
+    # 前景：等比缩放，保持完整内容（使用 min 确保完整显示）
+    fg_scale = (
+        f"scale='min({target_width}/iw\\,{target_height}/ih)*iw'"
+        f":'min({target_width}/iw\\,{target_height}/ih)*ih'"
         f":flags=lanczos"
     )
-    setsar_filter = "setsar=1"
-    crop_filter = f"crop={target_width}:{target_height}"  # 居中裁剪
+    fg_filter = f"{fg_scale},setsar=1"
+
+    # 叠加：前景居中
+    overlay_filter = "overlay=(W-w)/2:(H-h)/2"
 
     # 根据字幕格式选择滤镜
     if subtitle_path.suffix.lower() == ".ass":
-        # ASS 格式：样式已内嵌在文件中
         subtitle_filter = f"ass={subtitle_path_str}"
     else:
-        # SRT 格式：使用 subtitles 滤镜并指定样式
         subtitle_filter = f"subtitles={subtitle_path_str}:force_style='FontName=Arial,FontSize=48,PrimaryColour=&HFFFFFF,OutlineColour=&H000000,Outline=2,MarginV=60'"
 
-    # 组合滤镜链
-    vf_chain = f"{scale_filter},{setsar_filter},{crop_filter},{subtitle_filter}"
+    # 组合完整滤镜链
+    vf_chain = f"split[bg][fg];[bg]{bg_filter}[bg2];[fg]{fg_filter}[fg2];[bg2][fg2]{overlay_filter},{subtitle_filter}"
 
     cmd = [
         "ffmpeg",
