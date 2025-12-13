@@ -39,7 +39,7 @@ echo "[1/5] 启动后端 (端口 8000)..."
 # 总是先杀掉旧进程，确保加载最新代码
 pkill -9 -f "uvicorn.*8000" 2>/dev/null || true
 sleep 2
-nohup uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
+nohup .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
 
@@ -56,7 +56,7 @@ fi
 echo "[2/5] 启动 Timeline Worker..."
 pkill -9 -f "arq src.workers.timeline_worker" 2>/dev/null || true
 sleep 1
-nohup arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
+nohup .venv/bin/arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
 TIMELINE_PID=$!
 echo "Timeline Worker PID: $TIMELINE_PID"
 
@@ -64,7 +64,7 @@ echo "Timeline Worker PID: $TIMELINE_PID"
 echo "[3/5] 启动 Render Worker..."
 pkill -9 -f "arq src.workers.render_worker" 2>/dev/null || true
 sleep 1
-nohup arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
+nohup .venv/bin/arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
 RENDER_PID=$!
 echo "Render Worker PID: $RENDER_PID"
 
