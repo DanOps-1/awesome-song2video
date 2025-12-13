@@ -14,6 +14,11 @@ from src.infra.config.settings import get_settings
 from src.pipelines.lyrics_ingest.transcriber import transcribe_with_timestamps
 from src.services.matching.query_rewriter import QueryRewriter
 from src.services.matching.twelvelabs_client import client
+from src.audio.beat_detector import BeatAnalysisResult
+from src.audio.onset_detector import OnsetResult
+from src.services.matching.action_detector import action_detector
+from src.services.matching.beat_aligner import beat_aligner
+from src.services.matching.twelvelabs_video_fetcher import video_fetcher
 
 # 进度回调类型: async def callback(progress: float) -> None
 ProgressCallback = Callable[[float], Coroutine[Any, Any, None]]
@@ -73,6 +78,20 @@ class TimelineBuilder:
         self._used_segments: dict[tuple[str, int, int], int] = {}
         # 重叠阈值：零容忍！任何重叠都不允许
         self._overlap_threshold = 0.0  # 任何重叠 > 0 就跳过
+        # 缓存所有曾经见过的候选片段，用于随机选择
+        self._all_seen_candidates: list[dict[str, Any]] = []
+        # 通用搜索查询词列表，用于获取多样化的素材
+        self._generic_queries = [
+            "action scene",
+            "character running",
+            "chase scene",
+            "funny moment",
+            "cartoon animation",
+            "character interaction",
+            "dramatic scene",
+            "comedy scene",
+        ]
+        self._generic_query_index = 0
 
     def _is_non_lyric_text(self, text: str) -> bool:
         """
@@ -240,6 +259,8 @@ class TimelineBuilder:
         self,
         lines: list[dict[str, Any]],
         audio_duration_ms: int = 0,
+        beats: BeatAnalysisResult | None = None,
+        music_onsets: OnsetResult | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> TimelineResult:
         """对已确认的歌词行进行视频匹配。
@@ -247,6 +268,8 @@ class TimelineBuilder:
         Args:
             lines: 歌词行列表，格式 [{"text": "...", "start_ms": int, "end_ms": int}, ...]
             audio_duration_ms: 音频总时长（毫秒），用于填充尾部
+            beats: 音频节拍分析结果（用于 action 模式卡点）
+            music_onsets: 音乐鼓点检测结果（用于 onset 模式卡点，类似剪映）
             on_progress: 进度回调
         """
         self._candidate_cache.clear()
@@ -314,17 +337,15 @@ class TimelineBuilder:
                     )
                     gap_candidates = await self._get_candidates(gap_prompt, limit=20)
                     normalized_gap = self._normalize_candidates(gap_candidates, cursor_ms, start_ms)
-                    selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
+                    selected_gap = self._select_diverse_candidates(normalized_gap, limit=5)
                     if not selected_gap:
-                        selected_gap = [
-                            {
-                                "id": str(uuid4()),
-                                "source_video_id": self._settings.fallback_video_id,
-                                "start_time_ms": cursor_ms,
-                                "end_time_ms": start_ms,
-                                "score": 0.0,
-                            }
-                        ]
+                        # 随机选择一个未使用的片段
+                        gap_duration = start_ms - cursor_ms
+                        random_gap = await self._get_random_unused_segment(
+                            gap_duration, cursor_ms, start_ms
+                        )
+                        if random_gap:
+                            selected_gap = [random_gap]
                     for candidate in selected_gap:
                         segment_key = (
                             str(candidate.get("source_video_id")),
@@ -353,7 +374,28 @@ class TimelineBuilder:
                 candidates = await self._get_candidates(search_query, limit=20)
 
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
-            selected_candidates = self._select_diverse_candidates(normalized, limit=3)
+
+            # 应用卡点评分
+            # 注意：onset 模式的鼓点分析移到渲染阶段，避免匹配时分析多个候选导致太慢
+            beat_sync_mode = self._settings.beat_sync_mode if self._settings.beat_sync_enabled else None
+
+            if beat_sync_mode == "action" and beats and beat_aligner.should_apply_beat_sync(beats):
+                # 动作高光对齐模式（旧模式，在匹配阶段计算）
+                selected_candidates = await self._select_candidates_with_beat_sync(
+                    normalized, limit=5, lyric_start_ms=start_ms, beats=beats
+                )
+            else:
+                # onset 模式或无卡点：只按 TwelveLabs 评分选择，鼓点分析在渲染时实时进行
+                selected_candidates = self._select_diverse_candidates(normalized, limit=5)
+
+            # 如果所有候选都被去重拒绝，随机选择一个未使用的片段
+            if not selected_candidates:
+                lyric_duration_ms = end_ms - start_ms
+                random_segment = await self._get_random_unused_segment(
+                    lyric_duration_ms, start_ms, end_ms
+                )
+                if random_segment:
+                    selected_candidates = [random_segment]
 
             for candidate in selected_candidates:
                 segment_key = (
@@ -380,17 +422,15 @@ class TimelineBuilder:
             outro_prompt = "ending music video, fade out, cinematic, atmospheric"
             outro_candidates = await self._get_candidates(outro_prompt, limit=20)
             normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
-            selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
+            selected_outro = self._select_diverse_candidates(normalized_outro, limit=5)
             if not selected_outro:
-                selected_outro = [
-                    {
-                        "id": str(uuid4()),
-                        "source_video_id": self._settings.fallback_video_id,
-                        "start_time_ms": gap_start,
-                        "end_time_ms": gap_end,
-                        "score": 0.0,
-                    }
-                ]
+                # 随机选择一个未使用的片段
+                outro_duration = gap_end - gap_start
+                random_outro = await self._get_random_unused_segment(
+                    outro_duration, gap_start, gap_end
+                )
+                if random_outro:
+                    selected_outro = [random_outro]
             timeline.lines.append(
                 TimelineLine(
                     text="(Outro)", start_ms=gap_start, end_ms=gap_end, candidates=selected_outro
@@ -535,19 +575,16 @@ class TimelineBuilder:
                         normalized_gap = self._normalize_candidates(
                             gap_candidates, cursor_ms, start_ms
                         )
-                        selected_gap = self._select_diverse_candidates(normalized_gap, limit=3)
+                        selected_gap = self._select_diverse_candidates(normalized_gap, limit=5)
 
-                        # 兜底
+                        # 兜底：随机选择未使用的片段
                         if not selected_gap:
-                            selected_gap = [
-                                {
-                                    "id": str(uuid4()),
-                                    "source_video_id": self._settings.fallback_video_id,
-                                    "start_time_ms": cursor_ms,
-                                    "end_time_ms": start_ms,
-                                    "score": 0.0,
-                                }
-                            ]
+                            gap_duration = start_ms - cursor_ms
+                            random_gap = await self._get_random_unused_segment(
+                                gap_duration, cursor_ms, start_ms
+                            )
+                            if random_gap:
+                                selected_gap = [random_gap]
 
                         # 标记已使用
                         for candidate in selected_gap:
@@ -592,7 +629,7 @@ class TimelineBuilder:
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
 
             # 选择未使用或使用次数最少的片段
-            selected_candidates = self._select_diverse_candidates(normalized, limit=3)
+            selected_candidates = self._select_diverse_candidates(normalized, limit=5)
 
             # 标记所有候选片段为已使用（防止后续句子重复使用）
             for candidate in selected_candidates:
@@ -637,25 +674,24 @@ class TimelineBuilder:
             outro_prompt = "ending music video, fade out, cinematic, atmospheric"
             outro_candidates = await self._get_candidates(outro_prompt, limit=20)
             normalized_outro = self._normalize_candidates(outro_candidates, gap_start, gap_end)
-            selected_outro = self._select_diverse_candidates(normalized_outro, limit=3)
+            selected_outro = self._select_diverse_candidates(normalized_outro, limit=5)
 
             # 如果因为重叠等原因没有选到候选，强制使用 fallback
             if not selected_outro:
-                self._logger.warning(
-                    "timeline_builder.outro_fallback",
-                    gap_start=gap_start,
-                    gap_end=gap_end,
-                    message="Outro 搜索无可用候选，使用 Fallback",
+                # 随机选择一个未使用的片段
+                outro_duration = gap_end - gap_start
+                random_segment = await self._get_random_unused_segment(
+                    outro_duration, gap_start, gap_end
                 )
-                selected_outro = [
-                    {
-                        "id": str(uuid4()),
-                        "source_video_id": self._settings.fallback_video_id,
-                        "start_time_ms": gap_start,
-                        "end_time_ms": gap_end,
-                        "score": 0.0,
-                    }
-                ]
+                if random_segment:
+                    selected_outro = [random_segment]
+                else:
+                    self._logger.warning(
+                        "timeline_builder.outro_no_segment",
+                        gap_start=gap_start,
+                        gap_end=gap_end,
+                        message="Outro 无法找到未使用的片段，跳过",
+                    )
 
             timeline.lines.append(
                 TimelineLine(
@@ -670,12 +706,11 @@ class TimelineBuilder:
         self, raw_candidates: list[dict[str, int | float | str]], start_ms: int, end_ms: int
     ) -> list[dict[str, int | float | str]]:
         """
-        规范化候选视频片段，过滤掉时长严重不匹配的候选。
+        规范化候选视频片段，过滤掉时长不足的候选。
 
         过滤策略：
-        - 如果 API 返回的视频片段时长与歌词时长相差超过阈值，则跳过该候选
-        - 阈值：歌词时长 ≥ 5秒 且 视频时长 < 歌词时长 50% 时过滤
-        - 例如：歌词 30 秒，但视频只有 5 秒 → 过滤掉
+        - 视频片段时长必须 >= 歌词时长，否则丢弃
+        - 禁止循环播放，确保画面连贯性
         """
         lyric_duration_ms = end_ms - start_ms
         lyric_duration_s = lyric_duration_ms / 1000.0
@@ -683,8 +718,6 @@ class TimelineBuilder:
         def _candidate_defaults(
             candidate: dict[str, int | float | str],
         ) -> dict[str, int | float | str] | None:
-            # 🔧 修复: 从 API 返回片段的中间位置截取，以获得最匹配的画面
-            # 原因：AI 匹配的精彩画面往往在片段中间，而不是开头
             api_start = int(candidate.get("start", start_ms))
             api_end = int(candidate.get("end", end_ms))
             lyric_duration = end_ms - start_ms
@@ -693,20 +726,19 @@ class TimelineBuilder:
             api_duration_ms = api_end - api_start
             api_duration_s = api_duration_ms / 1000.0
 
-            # 过滤策略：如果歌词时长 ≥ 5秒 且 视频时长 < 歌词时长的 50%，则过滤掉
-            if lyric_duration_s >= 5.0 and api_duration_ms < lyric_duration_ms * 0.5:
-                self._logger.warning(
-                    "timeline_builder.duration_mismatch",
+            # 严格过滤：视频时长必须 >= 歌词时长，否则丢弃
+            if api_duration_ms < lyric_duration_ms:
+                self._logger.debug(
+                    "timeline_builder.duration_insufficient",
                     video_id=candidate.get("video_id"),
                     lyric_duration_s=round(lyric_duration_s, 2),
                     api_duration_s=round(api_duration_s, 2),
                     shortage_s=round(lyric_duration_s - api_duration_s, 2),
-                    shortage_pct=round((1 - api_duration_s / lyric_duration_s) * 100, 1),
-                    message="视频片段时长严重不足，跳过该候选",
+                    message="视频时长不足，丢弃该候选",
                 )
                 return None
 
-            # 计算API片段的中间位置
+            # 从 API 返回片段的中间位置截取，以获得最匹配的画面
             api_duration = api_end - api_start
             api_middle = api_start + (api_duration // 2)
 
@@ -714,27 +746,20 @@ class TimelineBuilder:
             clip_start = api_middle - (lyric_duration // 2)
             clip_end = clip_start + lyric_duration
 
-            # 🔧 修复：允许超出API片段边界，由 video_fetcher 自动处理循环/裁剪
-            #
-            # 原问题：当API返回的片段短于歌词时长时，边界检查会将选择截断到API长度
-            # 例如：歌词需要8s，API只有5s，原逻辑会将选择截断为5s，导致时长不足
-            #
-            # 新逻辑：保持完整的歌词时长需求，让 video_fetcher 处理边界情况
-            # - 如果超出视频末尾，video_fetcher 会自动使用循环模式 (_cut_clip_with_loop)
-            # - 如果起始位置为负，调整到从视频开头开始
+            # 边界检查：确保不超出 API 片段范围
             if clip_start < api_start:
-                # 起始位置提前：从API开头开始，保持歌词时长
                 clip_start = api_start
                 clip_end = clip_start + lyric_duration
-                # 不再限制 clip_end，允许超出 api_end
-            # 不处理 clip_end > api_end 的情况，让它自然超出
-            # video_fetcher 会检测到并使用循环模式
+
+            if clip_end > api_end:
+                clip_end = api_end
+                clip_start = clip_end - lyric_duration
 
             return {
                 "id": str(uuid4()),
-                "source_video_id": candidate.get("video_id", self._settings.fallback_video_id),
-                "start_time_ms": clip_start,  # 从中间位置开始截取
-                "end_time_ms": clip_end,  # 保持歌词时长
+                "source_video_id": candidate["video_id"],  # 必须有 video_id
+                "start_time_ms": clip_start,
+                "end_time_ms": clip_end,
                 "score": candidate.get("score", 0.0),
                 # 保留原始数据供参考
                 "api_start_ms": api_start,
@@ -754,35 +779,158 @@ class TimelineBuilder:
                 if result is not None:
                     normalized.append(result)
 
-            # 如果所有候选都被过滤掉了，返回 fallback
+            # 如果所有候选都被过滤掉了，返回空列表，让调用方使用随机选择
             if not normalized:
                 self._logger.warning(
                     "timeline_builder.all_candidates_filtered",
                     lyric_duration_s=round(lyric_duration_s, 2),
                     original_count=len(raw_candidates),
-                    message="所有候选视频时长都不匹配，使用 fallback 视频",
+                    message="所有候选视频时长都不匹配，返回空列表待随机选择",
                 )
-                return [
-                    {
-                        "id": str(uuid4()),
-                        "source_video_id": self._settings.fallback_video_id,
-                        "start_time_ms": start_ms,
-                        "end_time_ms": end_ms,
-                        "score": 0.0,
-                    }
-                ]
+                return []
 
             return normalized
 
-        return [
-            {
+        # 没有原始候选时返回空列表，让调用方决定如何处理
+        return []
+
+    async def _get_random_unused_segment(
+        self, lyric_duration_ms: int, start_ms: int, end_ms: int
+    ) -> dict[str, Any] | None:
+        """
+        当所有候选都被去重拒绝时，使用通用查询搜索未使用的片段。
+
+        策略：
+        1. 先从已缓存的候选中查找未使用的片段
+        2. 如果没有，使用通用查询词搜索新的片段
+        3. 筛选出未使用且不重叠的片段
+        4. 随机选择一个返回
+        """
+        import random
+
+        def is_segment_available(video_id: str, seg_start: int, seg_end: int) -> bool:
+            """检查片段是否可用（未使用且不与已使用片段重叠）"""
+            segment_key = (video_id, seg_start, seg_end)
+
+            # 检查精确匹配
+            if self._used_segments.get(segment_key, 0) > 0:
+                return False
+
+            # 检查重叠
+            for used_key in self._used_segments.keys():
+                used_video_id, used_start, used_end = used_key
+                if used_video_id == video_id:
+                    overlap = calculate_overlap_ratio(seg_start, seg_end, used_start, used_end)
+                    if overlap > 0:
+                        return False
+
+            return True
+
+        def try_extract_segment(candidate: dict[str, Any]) -> dict[str, Any] | None:
+            """尝试从候选中提取可用片段"""
+            video_id = candidate.get("video_id", "")
+            # TwelveLabs 客户端返回的 start/end 已经是毫秒
+            api_start = int(candidate.get("start", 0))
+            api_end = int(candidate.get("end", 0))
+            api_duration_ms = api_end - api_start
+
+            # 检查时长是否足够
+            if api_duration_ms < lyric_duration_ms:
+                return None
+
+            # 计算裁剪位置（从中间截取）
+            api_duration = api_end - api_start
+            api_middle = api_start + (api_duration // 2)
+            clip_start = api_middle - (lyric_duration_ms // 2)
+            clip_end = clip_start + lyric_duration_ms
+
+            # 边界检查
+            if clip_start < api_start:
+                clip_start = api_start
+                clip_end = clip_start + lyric_duration_ms
+            if clip_end > api_end:
+                clip_end = api_end
+                clip_start = clip_end - lyric_duration_ms
+
+            # 检查是否可用
+            if not is_segment_available(video_id, clip_start, clip_end):
+                return None
+
+            return {
                 "id": str(uuid4()),
-                "source_video_id": self._settings.fallback_video_id,
-                "start_time_ms": start_ms,
-                "end_time_ms": end_ms,
-                "score": 0.0,
+                "source_video_id": video_id,
+                "start_time_ms": clip_start,
+                "end_time_ms": clip_end,
+                "score": candidate.get("score", 0.0),
+                "is_random_fill": True,
+                "lyric_start_ms": start_ms,
+                "lyric_end_ms": end_ms,
             }
-        ]
+
+        # 策略1：从已缓存的候选中查找
+        available_from_cache = []
+        for candidate in self._all_seen_candidates:
+            result = try_extract_segment(candidate)
+            if result:
+                available_from_cache.append(result)
+
+        if available_from_cache:
+            selected = random.choice(available_from_cache)
+            self._logger.info(
+                "timeline_builder.random_fill_from_cache",
+                video_id=selected["source_video_id"],
+                start_ms=selected["start_time_ms"],
+                end_ms=selected["end_time_ms"],
+                cache_available=len(available_from_cache),
+                message="从缓存中随机选择未使用片段",
+            )
+            return selected
+
+        # 策略2：使用通用查询搜索新的片段
+        query = self._generic_queries[self._generic_query_index % len(self._generic_queries)]
+        self._generic_query_index += 1
+
+        self._logger.info(
+            "timeline_builder.random_fill_search",
+            query=query,
+            message="使用通用查询搜索新片段",
+        )
+
+        new_candidates = await client.search_segments(query, limit=50)
+
+        # 将新候选加入缓存
+        for c in new_candidates:
+            if c not in self._all_seen_candidates:
+                self._all_seen_candidates.append(c)
+
+        # 从新候选中查找可用片段
+        available_from_search = []
+        for candidate in new_candidates:
+            result = try_extract_segment(candidate)
+            if result:
+                available_from_search.append(result)
+
+        if available_from_search:
+            selected = random.choice(available_from_search)
+            self._logger.info(
+                "timeline_builder.random_fill_from_search",
+                video_id=selected["source_video_id"],
+                start_ms=selected["start_time_ms"],
+                end_ms=selected["end_time_ms"],
+                search_available=len(available_from_search),
+                message="从通用搜索中随机选择未使用片段",
+            )
+            return selected
+
+        # 如果还是没有，记录警告并返回 None
+        self._logger.warning(
+            "timeline_builder.no_available_segments",
+            lyric_duration_ms=lyric_duration_ms,
+            used_count=len(self._used_segments),
+            cache_size=len(self._all_seen_candidates),
+            message="无法找到任何可用的未使用片段",
+        )
+        return None
 
     async def _get_candidates(self, text: str, limit: int) -> list[dict[str, Any]]:
         """
@@ -880,6 +1028,11 @@ class TimelineBuilder:
 
             self._candidate_cache[key] = candidates
 
+            # 将新候选加入全局缓存，用于随机选择
+            for c in candidates:
+                if c not in self._all_seen_candidates:
+                    self._all_seen_candidates.append(c)
+
         candidates = [candidate.copy() for candidate in self._candidate_cache[key]]
         count = len(candidates)
         log_method = self._logger.warning if count == 0 else self._logger.info
@@ -970,13 +1123,13 @@ class TimelineBuilder:
             item["candidate"] for item in valid_candidates[:limit]
         ]
 
-        # 策略3：如果没有可用片段，返回空（触发 fallback）
+        # 策略3：如果没有可用片段，返回空列表，让调用方使用随机选择
         if not selected:
             self._logger.warning(
                 "timeline_builder.no_valid_candidates",
                 total_candidates=len(candidates),
                 rejected_count=rejected_count,
-                message="严格去重：所有候选都已使用或重叠，将使用 fallback 视频",
+                message="严格去重：所有候选都已使用或重叠，将随机选择未使用片段",
             )
             return []
 
@@ -1002,6 +1155,273 @@ class TimelineBuilder:
             selected_count=len(selected),
             message=f"严格去重：从{len(candidates)}个候选中筛选出{len(valid_candidates)}个有效，选择了{len(selected)}个",
         )
+
+        return selected
+
+    async def _select_candidates_with_beat_sync(
+        self,
+        candidates: list[dict[str, int | float | str]],
+        limit: int,
+        lyric_start_ms: int,
+        beats: BeatAnalysisResult,
+    ) -> list[dict[str, int | float | str]]:
+        """
+        选择候选片段并应用卡点评分。
+
+        流程:
+        1. 先用严格去重筛选有效候选
+        2. 获取每个候选视频的动作档案
+        3. 计算卡点对齐分数
+        4. 按综合评分排序选择
+        5. 存储 beat_sync_offset_ms 供渲染使用
+
+        Args:
+            candidates: 候选片段列表
+            limit: 选择数量限制
+            lyric_start_ms: 歌词行起始时间
+            beats: 节拍分析结果
+
+        Returns:
+            带有 beat_sync_offset_ms 的候选列表
+        """
+        if not candidates:
+            return []
+
+        # 第一步：应用严格去重过滤
+        valid_candidates: list[dict[str, Any]] = []
+        rejected_count = 0
+
+        for candidate in candidates:
+            video_id = str(candidate.get("source_video_id", ""))
+            start_ms = int(candidate.get("start_time_ms", 0))
+            end_ms = int(candidate.get("end_time_ms", 0))
+            segment_key = (video_id, start_ms, end_ms)
+
+            # 检查精确匹配重复
+            usage_count = self._used_segments.get(segment_key, 0)
+            if usage_count > 0:
+                rejected_count += 1
+                continue
+
+            # 检查时间重叠
+            has_overlap = False
+            for used_key in self._used_segments.keys():
+                used_video_id, used_start, used_end = used_key
+                if used_video_id == video_id:
+                    overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
+                    if overlap_ratio > 0:
+                        has_overlap = True
+                        rejected_count += 1
+                        break
+
+            if has_overlap:
+                continue
+
+            valid_candidates.append(dict(candidate))
+
+        if not valid_candidates:
+            self._logger.warning(
+                "timeline_builder.beat_sync_no_candidates",
+                total=len(candidates),
+                rejected=rejected_count,
+                message="卡点选择：所有候选都被过滤",
+            )
+            return []
+
+        # 第二步：获取视频动作档案并计算卡点分数
+        scored_candidates: list[tuple[dict[str, Any], float, int]] = []
+
+        for candidate in valid_candidates:
+            video_id = str(candidate.get("source_video_id", ""))
+            original_score = float(candidate.get("score", 0.0))
+
+            # 尝试获取视频动作档案
+            video_profile = None
+            try:
+                video_profile = await action_detector.analyze_video(video_id)
+            except Exception as exc:
+                self._logger.debug(
+                    "timeline_builder.action_detect_failed",
+                    video_id=video_id,
+                    error=str(exc),
+                )
+
+            # 计算卡点对齐分数
+            alignment = beat_aligner.calculate_alignment_score(
+                candidate=candidate,
+                lyric_start_ms=lyric_start_ms,
+                beats=beats,
+                video_profile=video_profile,
+            )
+
+            # 存储卡点偏移量供渲染使用
+            candidate["beat_sync_offset_ms"] = alignment.offset_ms
+            candidate["beat_sync_score"] = alignment.score
+            candidate["beat_sync_details"] = alignment.details
+
+            scored_candidates.append((candidate, alignment.score, alignment.offset_ms))
+
+            self._logger.debug(
+                "timeline_builder.beat_sync_scored",
+                video_id=video_id,
+                original_score=round(original_score, 3),
+                beat_sync_score=round(alignment.score, 3),
+                offset_ms=alignment.offset_ms,
+                has_action_profile=video_profile is not None,
+            )
+
+        # 第三步：按综合评分降序排序
+        scored_candidates.sort(key=lambda x: -x[1])
+
+        # 选择 top N
+        selected = [item[0] for item in scored_candidates[:limit]]
+
+        if selected:
+            self._logger.info(
+                "timeline_builder.beat_sync_selected",
+                total=len(candidates),
+                valid=len(valid_candidates),
+                selected=len(selected),
+                top_score=round(scored_candidates[0][1], 3) if scored_candidates else 0,
+                top_offset=scored_candidates[0][2] if scored_candidates else 0,
+                message="卡点选择完成",
+            )
+
+        return selected
+
+    async def _select_candidates_with_onset_sync(
+        self,
+        candidates: list[dict[str, Any]],
+        limit: int,
+        lyric_start_ms: int,
+        lyric_end_ms: int,
+        music_onsets: OnsetResult,
+    ) -> list[dict[str, Any]]:
+        """基于鼓点对齐选择候选视频（类似剪映自动卡点）。
+
+        核心逻辑：
+        1. 获取歌词时间段内的音乐鼓点
+        2. 从视频音频中提取鼓点
+        3. 计算最佳偏移使两者鼓点对齐
+        4. 按对齐分数排序选择候选
+
+        Args:
+            candidates: 候选列表
+            limit: 选择数量
+            lyric_start_ms: 歌词开始时间
+            lyric_end_ms: 歌词结束时间
+            music_onsets: 整首歌曲的鼓点检测结果
+        """
+        if not candidates:
+            return []
+
+        # 第一步：应用去重过滤（与 beat_sync 相同）
+        valid_candidates: list[dict[str, Any]] = []
+        rejected_count = 0
+
+        for candidate in candidates:
+            video_id = str(candidate.get("source_video_id", ""))
+            start_ms = int(candidate.get("start_time_ms", 0))
+            end_ms = int(candidate.get("end_time_ms", 0))
+            segment_key = (video_id, start_ms, end_ms)
+
+            usage_count = self._used_segments.get(segment_key, 0)
+            if usage_count > 0:
+                rejected_count += 1
+                continue
+
+            has_overlap = False
+            for used_key in self._used_segments.keys():
+                used_video_id, used_start, used_end = used_key
+                if used_video_id == video_id:
+                    overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
+                    if overlap_ratio > 0:
+                        has_overlap = True
+                        rejected_count += 1
+                        break
+
+            if has_overlap:
+                continue
+
+            valid_candidates.append(dict(candidate))
+
+        if not valid_candidates:
+            self._logger.warning(
+                "timeline_builder.onset_sync_no_candidates",
+                total=len(candidates),
+                rejected=rejected_count,
+            )
+            return []
+
+        # 第二步：只对 Top 3 候选计算鼓点对齐（避免分析全部候选导致太慢）
+        # 先按 TwelveLabs 原始评分排序，取前 3 个
+        valid_candidates.sort(key=lambda x: -float(x.get("score", 0.0)))
+        top_candidates = valid_candidates[:3]
+
+        self._logger.info(
+            "timeline_builder.onset_sync_analyzing",
+            total_valid=len(valid_candidates),
+            analyzing=len(top_candidates),
+            message=f"只分析前 {len(top_candidates)} 个候选的鼓点",
+        )
+
+        scored_candidates: list[tuple[dict[str, Any], float, int]] = []
+
+        for candidate in top_candidates:
+            video_id = str(candidate.get("source_video_id", ""))
+            original_score = float(candidate.get("score", 0.0))
+
+            # 获取视频流 URL 用于提取音频
+            video_stream_url = None
+            try:
+                video_stream_url = video_fetcher._get_stream_url(video_id)
+            except Exception as exc:
+                self._logger.debug(
+                    "timeline_builder.get_stream_url_failed",
+                    video_id=video_id,
+                    error=str(exc),
+                )
+
+            # 计算鼓点对齐分数
+            alignment = await beat_aligner.calculate_onset_alignment(
+                candidate=candidate,
+                lyric_start_ms=lyric_start_ms,
+                lyric_end_ms=lyric_end_ms,
+                music_onsets=music_onsets,
+                video_stream_url=video_stream_url,
+            )
+
+            # 存储对齐信息
+            candidate["beat_sync_offset_ms"] = alignment.offset_ms
+            candidate["beat_sync_score"] = alignment.score
+            candidate["beat_sync_details"] = alignment.details
+
+            scored_candidates.append((candidate, alignment.score, alignment.offset_ms))
+
+            self._logger.debug(
+                "timeline_builder.onset_sync_scored",
+                video_id=video_id,
+                original_score=round(original_score, 3),
+                onset_sync_score=round(alignment.score, 3),
+                offset_ms=alignment.offset_ms,
+            )
+
+        # 第三步：按对齐分数排序
+        scored_candidates.sort(key=lambda x: -x[1])
+
+        # 选择 top N
+        selected = [item[0] for item in scored_candidates[:limit]]
+
+        if selected:
+            self._logger.info(
+                "timeline_builder.onset_sync_selected",
+                total=len(candidates),
+                valid=len(valid_candidates),
+                selected=len(selected),
+                top_score=round(scored_candidates[0][1], 3) if scored_candidates else 0,
+                top_offset=scored_candidates[0][2] if scored_candidates else 0,
+                message="鼓点卡点选择完成",
+            )
 
         return selected
 
