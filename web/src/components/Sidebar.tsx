@@ -5,7 +5,8 @@ import {
   Film,
   Music,
   Settings,
-  Cpu
+  Cpu,
+  ScrollText
 } from 'lucide-react'
 import { clsx } from 'clsx'
 
@@ -14,6 +15,7 @@ const navigation = [
   { name: '任务管理', href: '/tasks', icon: ListTodo },
   { name: '视频库', href: '/assets/videos', icon: Film },
   { name: '音频库', href: '/assets/audios', icon: Music },
+  { name: '实时日志', href: '/logs', icon: ScrollText },
   { name: '系统配置', href: '/settings', icon: Settings },
   { name: '检索后端', href: '/settings/retriever', icon: Cpu },
 ]

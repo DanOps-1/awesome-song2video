@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, CheckCircle, Play, RefreshCw, AlertCircle, Edit3, Check, X, Trash2, Plus } from 'lucide-react'
+import { ArrowLeft, Loader2, CheckCircle, Play, RefreshCw, AlertCircle, Edit3, Check, X, Trash2, Plus, ChevronDown, ChevronUp, Video } from 'lucide-react'
 import { useState } from 'react'
 import {
   getLines,
@@ -15,6 +15,7 @@ import {
   deleteLine,
   deleteLinesBatch,
   addLine,
+  getCandidatePreviewUrl,
 } from '@/api/mix'
 
 export default function Status() {
@@ -38,6 +39,13 @@ export default function Status() {
 
   // 渲染选项
   const [bilingualSubtitle, setBilingualSubtitle] = useState(false)
+
+  // 候选视频展开/预览状态
+  const [expandedLineIds, setExpandedLineIds] = useState<Set<string>>(new Set())
+  const [previewingCandidate, setPreviewingCandidate] = useState<{
+    lineId: string
+    candidateId: string
+  } | null>(null)
 
   // 获取混剪任务状态（包含时间线进度和歌词行）
   const { data: mixData, isLoading: mixLoading } = useQuery({
@@ -312,12 +320,50 @@ export default function Status() {
   const handleLockAll = () => {
     const linesToLock = candidateLines.filter(line => line.status !== 'locked' && line.candidates.length > 0)
     linesToLock.forEach(line => {
-      lockMutation.mutate({ lineId: line.id, segmentId: line.candidates[0].id })
+      // 使用已选择的片段，否则使用第一个
+      const segmentId = line.selected_segment_id || line.candidates[0].id
+      lockMutation.mutate({ lineId: line.id, segmentId })
     })
   }
 
   const handleLockOne = (lineId: string, segmentId: string) => {
     lockMutation.mutate({ lineId, segmentId })
+  }
+
+  // 切换歌词行的候选列表展开/收起
+  const toggleLineExpansion = (lineId: string) => {
+    setExpandedLineIds(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(lineId)) {
+        newSet.delete(lineId)
+      } else {
+        newSet.add(lineId)
+      }
+      return newSet
+    })
+  }
+
+  // 选择候选视频（不立即锁定，只是选择）
+  const handleSelectCandidate = (lineId: string, candidateId: string) => {
+    lockMutation.mutate({ lineId, segmentId: candidateId })
+    setPreviewingCandidate(null)
+  }
+
+  // 开始预览候选视频
+  const startPreview = (lineId: string, candidateId: string) => {
+    setPreviewingCandidate({ lineId, candidateId })
+  }
+
+  // 关闭预览
+  const closePreview = () => {
+    setPreviewingCandidate(null)
+  }
+
+  // 获取当前选中的候选 ID（可能是已确认的或用户刚选择的）
+  const getSelectedCandidateId = (line: typeof candidateLines[0]): string | null => {
+    if (line.selected_segment_id) return line.selected_segment_id
+    if (line.candidates.length > 0) return line.candidates[0].id
+    return null
   }
 
   // 获取阶段文本
@@ -733,96 +779,201 @@ export default function Status() {
                 </div>
               )}
 
-              <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto">
+              <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
                 {candidateLines.length === 0 ? (
                   <div className="p-8 text-center text-gray-500">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
                     正在加载...
                   </div>
                 ) : (
-                  candidateLines.map((line) => (
-                    <div
-                      key={line.id}
-                      className={`p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors ${
-                        line.candidates.length === 0 ? 'bg-orange-50/50' : ''
-                      }`}
-                    >
-                      {/* 左侧：状态图标 */}
-                      <div className="flex-shrink-0">
-                        {line.status === 'locked' ? (
-                          <CheckCircle className="w-5 h-5 text-green-500" />
-                        ) : line.candidates.length > 0 ? (
-                          <div className="w-5 h-5 border-2 border-purple-400 rounded-full" />
-                        ) : (
-                          <span title="使用默认视频">
-                            <AlertCircle className="w-5 h-5 text-orange-500" />
-                          </span>
-                        )}
-                      </div>
+                  candidateLines.map((line) => {
+                    const isExpanded = expandedLineIds.has(line.id)
+                    const selectedId = getSelectedCandidateId(line)
 
-                      {/* 中间：歌词内容（可编辑） */}
-                      <div className="flex-1 min-w-0">
-                        {editingLineId === line.id ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              className="flex-1 px-3 py-1.5 border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                              autoFocus
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') saveEdit(line.id)
-                                if (e.key === 'Escape') cancelEdit()
-                              }}
-                            />
-                            <button
-                              onClick={() => saveEdit(line.id)}
-                              disabled={updateLineMutation.isPending}
-                              className="p-1.5 text-green-600 hover:bg-green-50 active:scale-90 active:bg-green-100 rounded transition-all"
-                            >
-                              <Check className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="p-1.5 text-gray-400 hover:bg-gray-50 active:scale-90 active:bg-gray-100 rounded transition-all"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div
-                            className="group flex items-center gap-2 cursor-pointer"
-                            onClick={() => startEdit(line.id, line.original_text)}
-                          >
-                            <p className="text-gray-900">{line.original_text}</p>
-                            <Edit3 className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            {line.candidates.length === 0 && (
-                              <span className="flex-shrink-0 px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded">
-                                未匹配
+                    return (
+                      <div
+                        key={line.id}
+                        className={`${line.candidates.length === 0 ? 'bg-orange-50/50' : ''}`}
+                      >
+                        {/* 歌词行主体 */}
+                        <div className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
+                          {/* 左侧：状态图标 */}
+                          <div className="flex-shrink-0">
+                            {line.status === 'locked' ? (
+                              <CheckCircle className="w-5 h-5 text-green-500" />
+                            ) : line.candidates.length > 0 ? (
+                              <div className="w-5 h-5 border-2 border-purple-400 rounded-full" />
+                            ) : (
+                              <span title="使用默认视频">
+                                <AlertCircle className="w-5 h-5 text-orange-500" />
                               </span>
                             )}
                           </div>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">
-                          {(line.start_time_ms / 1000).toFixed(1)}s - {(line.end_time_ms / 1000).toFixed(1)}s
-                          {line.candidates.length > 0
-                            ? ` | ${line.candidates.length} 个候选`
-                            : ' | 将使用默认视频'}
-                        </p>
-                      </div>
 
-                      {/* 右侧：确认视频按钮 */}
-                      {line.status !== 'locked' && line.candidates.length > 0 && (
-                        <button
-                          onClick={() => handleLockOne(line.id, line.candidates[0].id)}
-                          disabled={lockMutation.isPending}
-                          className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 active:scale-95 active:bg-purple-300 disabled:opacity-50 disabled:active:scale-100 transition-all"
-                        >
-                          {lockMutation.isPending ? '...' : '确认视频'}
-                        </button>
-                      )}
-                    </div>
-                  ))
+                          {/* 中间：歌词内容（可编辑） */}
+                          <div className="flex-1 min-w-0">
+                            {editingLineId === line.id ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={editText}
+                                  onChange={(e) => setEditText(e.target.value)}
+                                  className="flex-1 px-3 py-1.5 border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') saveEdit(line.id)
+                                    if (e.key === 'Escape') cancelEdit()
+                                  }}
+                                />
+                                <button
+                                  onClick={() => saveEdit(line.id)}
+                                  disabled={updateLineMutation.isPending}
+                                  className="p-1.5 text-green-600 hover:bg-green-50 active:scale-90 active:bg-green-100 rounded transition-all"
+                                >
+                                  <Check className="w-5 h-5" />
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  className="p-1.5 text-gray-400 hover:bg-gray-50 active:scale-90 active:bg-gray-100 rounded transition-all"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                className="group flex items-center gap-2 cursor-pointer"
+                                onClick={() => startEdit(line.id, line.original_text)}
+                              >
+                                <p className="text-gray-900">{line.original_text}</p>
+                                <Edit3 className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                {line.candidates.length === 0 && (
+                                  <span className="flex-shrink-0 px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-700 rounded">
+                                    未匹配
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                              {(line.start_time_ms / 1000).toFixed(1)}s - {(line.end_time_ms / 1000).toFixed(1)}s
+                              {line.candidates.length > 0
+                                ? ` | ${line.candidates.length} 个候选`
+                                : ' | 将使用默认视频'}
+                            </p>
+                          </div>
+
+                          {/* 右侧：展开候选按钮和确认按钮 */}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {line.candidates.length > 0 && (
+                              <button
+                                onClick={() => toggleLineExpansion(line.id)}
+                                className="p-2 text-gray-500 hover:bg-gray-100 active:scale-90 rounded-lg transition-all flex items-center gap-1"
+                                title={isExpanded ? '收起候选' : '展开候选'}
+                              >
+                                <Video className="w-4 h-4" />
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                            {line.status !== 'locked' && line.candidates.length > 0 && (
+                              <button
+                                onClick={() => handleLockOne(line.id, selectedId!)}
+                                disabled={lockMutation.isPending}
+                                className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 active:scale-95 active:bg-purple-300 disabled:opacity-50 disabled:active:scale-100 transition-all"
+                              >
+                                {lockMutation.isPending ? '...' : '确认'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 展开的候选列表 */}
+                        {isExpanded && line.candidates.length > 0 && (
+                          <div className="px-4 pb-4 pl-14 bg-gray-50">
+                            <div className="text-xs text-gray-500 mb-2">选择视频片段：</div>
+                            <div className="space-y-2">
+                              {line.candidates.map((candidate, idx) => {
+                                const isSelected = candidate.id === selectedId
+                                const isPreviewing = previewingCandidate?.lineId === line.id && previewingCandidate?.candidateId === candidate.id
+
+                                return (
+                                  <div
+                                    key={candidate.id}
+                                    className={`p-3 rounded-lg border transition-all ${
+                                      isSelected
+                                        ? 'border-purple-400 bg-purple-50'
+                                        : 'border-gray-200 bg-white hover:border-gray-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <span className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-medium ${
+                                          isSelected ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'
+                                        }`}>
+                                          {idx + 1}
+                                        </span>
+                                        <div>
+                                          <p className="text-sm text-gray-700">
+                                            视频片段 {(candidate.start_time_ms / 1000).toFixed(1)}s - {(candidate.end_time_ms / 1000).toFixed(1)}s
+                                          </p>
+                                          <p className="text-xs text-gray-400">
+                                            评分: {candidate.score.toFixed(2)} | ID: {candidate.source_video_id.slice(0, 8)}...
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => startPreview(line.id, candidate.id)}
+                                          className="px-2 py-1 text-xs text-blue-600 border border-blue-300 rounded hover:bg-blue-50 active:scale-95 transition-all"
+                                        >
+                                          <Play className="w-3 h-3 inline mr-1" />
+                                          预览
+                                        </button>
+                                        {!isSelected && (
+                                          <button
+                                            onClick={() => handleSelectCandidate(line.id, candidate.id)}
+                                            className="px-2 py-1 text-xs text-purple-600 border border-purple-300 rounded hover:bg-purple-50 active:scale-95 transition-all"
+                                          >
+                                            选择
+                                          </button>
+                                        )}
+                                        {isSelected && (
+                                          <span className="px-2 py-1 text-xs text-green-600 bg-green-100 rounded">
+                                            已选
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* 视频预览 */}
+                                    {isPreviewing && (
+                                      <div className="mt-3 relative">
+                                        <video
+                                          src={getCandidatePreviewUrl(mixId!, line.id, candidate.id)}
+                                          controls
+                                          autoPlay
+                                          className="w-full rounded-lg max-h-48 bg-black"
+                                          onError={() => alert('视频预览加载失败')}
+                                        />
+                                        <button
+                                          onClick={closePreview}
+                                          className="absolute top-2 right-2 p-1 bg-black/50 text-white rounded-full hover:bg-black/70"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
                 )}
               </div>
 

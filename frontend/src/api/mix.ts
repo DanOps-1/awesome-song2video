@@ -18,6 +18,14 @@ export interface MixResponse {
   lines: LineInfo[]
 }
 
+export interface CandidateInfo {
+  id: string
+  source_video_id: string
+  start_time_ms: number
+  end_time_ms: number
+  score: number
+}
+
 export interface LineInfo {
   id: string
   line_no: number
@@ -25,11 +33,8 @@ export interface LineInfo {
   start_time_ms: number
   end_time_ms: number
   status: string
-  candidates: Array<{
-    id: string
-    preview_url?: string
-    score: number
-  }>
+  selected_segment_id?: string | null
+  candidates: CandidateInfo[]
 }
 
 export interface PreviewManifest {
@@ -203,4 +208,11 @@ export interface AddLineRequest {
 export async function addLine(mixId: string, payload: AddLineRequest): Promise<LineInfo> {
   const { data } = await apiClient.post(`/mixes/${mixId}/lines`, payload)
   return data
+}
+
+/**
+ * 获取候选视频预览的 URL
+ */
+export function getCandidatePreviewUrl(mixId: string, lineId: string, candidateId: string): string {
+  return `/api/v1/mixes/${mixId}/lines/${lineId}/candidates/${candidateId}/preview`
 }

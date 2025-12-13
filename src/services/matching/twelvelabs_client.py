@@ -167,9 +167,18 @@ class TwelveLabsClient:
             for match in matches
         ]
 
+    def _is_in_intro_zone(self, start_seconds: float) -> bool:
+        """检查片段是否在片头区域（应被过滤）"""
+        intro_skip_ms = self._settings.video_intro_skip_ms
+        if intro_skip_ms <= 0:
+            return False
+        start_ms = int(start_seconds * 1000)
+        return start_ms < intro_skip_ms
+
     def _convert_results(self, items: Iterable[Any], limit: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         seen_videos: set[str] = set()  # 追踪已使用的 video_id，避免重复
+        intro_filtered_count = 0
 
         for item in items:
             try:
@@ -204,6 +213,11 @@ class TwelveLabsClient:
                         )
                         continue
 
+                    # 过滤片头区域
+                    if self._is_in_intro_zone(start):
+                        intro_filtered_count += 1
+                        continue
+
                     # 跳过已使用过的视频
                     if video_id in seen_videos:
                         logger.debug(
@@ -225,6 +239,12 @@ class TwelveLabsClient:
                     seen_videos.add(video_id)
 
                     if len(results) >= limit:
+                        if intro_filtered_count > 0:
+                            logger.debug(
+                                "twelvelabs.intro_filtered",
+                                count=intro_filtered_count,
+                                intro_skip_ms=self._settings.video_intro_skip_ms,
+                            )
                         return results
             else:
                 video_id = getattr(item, "video_id", None)
@@ -241,6 +261,11 @@ class TwelveLabsClient:
                         end=end,
                         message="跳过时间戳为 null 的结果",
                     )
+                    continue
+
+                # 过滤片头区域
+                if self._is_in_intro_zone(start):
+                    intro_filtered_count += 1
                     continue
 
                 # 跳过已使用过的视频
@@ -265,6 +290,13 @@ class TwelveLabsClient:
 
             if len(results) >= limit:
                 break
+
+        if intro_filtered_count > 0:
+            logger.debug(
+                "twelvelabs.intro_filtered",
+                count=intro_filtered_count,
+                intro_skip_ms=self._settings.video_intro_skip_ms,
+            )
 
         return results
 

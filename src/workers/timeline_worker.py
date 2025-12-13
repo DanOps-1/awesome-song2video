@@ -17,7 +17,11 @@ from src.audio.structure_analyzer import (
     detect_intro_outro_boundaries,
     merge_intro_outro_lines,
 )
+from src.audio.beat_detector import detect_beats, BeatAnalysisResult
+from src.audio.onset_detector import detect_onsets, OnsetResult
 from src.domain.models.song_mix import LyricLine, VideoSegmentMatch
+from src.domain.models.beat_sync import BeatAnalysisData
+from src.infra.persistence.database import get_session
 from src.infra.config.settings import get_settings
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.pipelines.matching.timeline_builder import TimelineBuilder
@@ -245,16 +249,100 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
 
     await repo.update_timeline_progress(mix_id, 10.0)
 
+    # ====== 节拍检测（卡点功能） ======
+    settings = get_settings()
+    beats: BeatAnalysisResult | None = None
+
+    if settings.beat_sync_enabled and audio_path:
+        try:
+            logger.info("timeline_worker.beat_detection_started", mix_id=mix_id)
+            beats = await detect_beats(audio_path)
+
+            # 保存节拍分析数据到数据库
+            async with get_session() as session:
+                from sqlmodel import select
+
+                # 检查是否已存在
+                stmt = select(BeatAnalysisData).where(
+                    BeatAnalysisData.mix_request_id == mix_id
+                )
+                result = await session.execute(stmt)
+                existing = result.scalar_one_or_none()
+
+                beat_data = BeatAnalysisData(
+                    id=str(uuid4()),
+                    mix_request_id=mix_id,
+                    bpm=beats.bpm,
+                    beat_times_ms=beats.beat_times_ms,
+                    downbeat_times_ms=beats.downbeat_times_ms,
+                    beat_strength=beats.beat_strength,
+                    tempo_stability=beats.tempo_stability,
+                    enabled=True,
+                )
+
+                if existing:
+                    existing.bpm = beats.bpm
+                    existing.beat_times_ms = beats.beat_times_ms
+                    existing.downbeat_times_ms = beats.downbeat_times_ms
+                    existing.beat_strength = beats.beat_strength
+                    existing.tempo_stability = beats.tempo_stability
+                else:
+                    session.add(beat_data)
+
+                await session.commit()
+
+            logger.info(
+                "timeline_worker.beat_detection_completed",
+                mix_id=mix_id,
+                bpm=round(beats.bpm, 1),
+                beat_count=len(beats.beat_times_ms),
+                stability=round(beats.tempo_stability, 2),
+            )
+        except Exception as exc:
+            logger.warning(
+                "timeline_worker.beat_detection_failed",
+                mix_id=mix_id,
+                error=str(exc),
+            )
+            # 节拍检测失败不影响主流程
+
+    await repo.update_timeline_progress(mix_id, 12.0)
+
+    # ====== 鼓点检测（onset 模式，类似剪映自动卡点） ======
+    music_onsets: OnsetResult | None = None
+
+    if settings.beat_sync_enabled and settings.beat_sync_mode == "onset" and audio_path:
+        try:
+            logger.info("timeline_worker.onset_detection_started", mix_id=mix_id)
+            music_onsets = await detect_onsets(audio_path)
+            logger.info(
+                "timeline_worker.onset_detection_completed",
+                mix_id=mix_id,
+                onset_count=len(music_onsets.onset_times_ms),
+                duration_ms=music_onsets.duration_ms,
+            )
+        except Exception as exc:
+            logger.warning(
+                "timeline_worker.onset_detection_failed",
+                mix_id=mix_id,
+                error=str(exc),
+            )
+            # 鼓点检测失败不影响主流程
+
+    await repo.update_timeline_progress(mix_id, 15.0)
+
     # ====== 进行视频匹配 ======
     async def on_progress(progress: float) -> None:
-        # 进度范围: 10% - 90%
-        adjusted_progress = 10.0 + progress * 0.8
+        # 进度范围: 15% - 90%
+        adjusted_progress = 15.0 + progress * 0.75
         await repo.update_timeline_progress(mix_id, adjusted_progress)
         logger.info("timeline_worker.match_progress", mix_id=mix_id, progress=round(adjusted_progress, 1))
 
     result = await builder.match_videos_for_lines(
         lines=merged_lines,
         audio_duration_ms=audio_duration_ms,
+        beats=beats,
+        music_onsets=music_onsets,
         on_progress=on_progress,
     )
 
@@ -298,6 +386,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
                     end_time_ms=candidate["end_time_ms"],
                     score=candidate["score"],
                     generated_by="auto",
+                    beat_sync_offset_ms=int(candidate.get("beat_sync_offset_ms", 0)),
                 )
             )
         await repo.replace_candidates(new_line.id, candidates)
@@ -377,6 +466,7 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
                     end_time_ms=candidate["end_time_ms"],
                     score=candidate["score"],
                     generated_by="auto",
+                    beat_sync_offset_ms=int(candidate.get("beat_sync_offset_ms", 0)),
                 )
             )
 

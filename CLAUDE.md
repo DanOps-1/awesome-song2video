@@ -82,8 +82,11 @@ The system uses a two-phase workflow in `timeline_worker.py`:
 ### Key Services
 - **LyricsFetcher** (`src/lyrics/fetcher.py`): Multi-source lyrics fetcher with auto-fallback (QQ/NetEase/Kugou/LRCLIB)
 - **TimelineBuilder** (`src/pipelines/matching/timeline_builder.py`): Orchestrates Whisper transcription and TwelveLabs video search with query rewriting and deduplication
-- **RenderWorker** (`src/workers/render_worker.py`): Parallel clip extraction with FFmpeg, supports hot-reload config via Redis
+- **RenderWorker** (`src/workers/render_worker.py`): Parallel clip extraction with FFmpeg, supports hot-reload config via Redis, video aspect ratio, bilingual subtitles
 - **QueryRewriter** (`src/services/matching/query_rewriter.py`): Uses DeepSeek LLM to convert abstract lyrics to visual descriptions
+- **BeatAligner** (`src/services/matching/beat_aligner.py`): Aligns video clips with music beats/onsets for rhythm sync
+- **BeatDetector** (`src/audio/beat_detector.py`): Librosa-based beat detection with BPM, downbeats, tempo stability analysis
+- **OnsetDetector** (`src/audio/onset_detector.py`): Detects drum beats from audio for auto-sync (like 剪映)
 
 ### API Structure
 - `/api/v1/mixes` - Create/manage mix requests
@@ -93,14 +96,20 @@ The system uses a two-phase workflow in `timeline_worker.py`:
 - `/api/v1/mixes/{id}/lines` - Manage lyric lines
 - `/api/v1/mixes/{id}/preview` - Get timeline manifest
 - `/api/v1/mixes/{id}/render` - Submit render job
+- `/api/v1/mixes/{id}/analyze-beats` - Trigger beat analysis
+- `/api/v1/mixes/{id}/beats` - Get beat analysis data
+- `/api/v1/mixes/{id}/beat-sync` - Toggle beat sync on/off
 - `/api/v1/render/config` - Hot-reload render settings
 - `/api/v1/admin/*` - Admin dashboard endpoints
+- `/api/v1/admin/logs` - Log viewer API (query, stream, list files)
 
 ### Database Models
 - `SongMixRequest` - Main mix request entity
 - `LyricLine` - Individual lyric lines with timestamps
 - `VideoSegmentMatch` - Video candidates for each line
 - `RenderJob` - Async render task tracking
+- `BeatAnalysisData` - Beat analysis results (BPM, beat times, downbeats, tempo stability)
+- `VideoActionCache` - Cached video action points for beat alignment
 
 ### Workers (ARQ-based)
 Workers use Redis + ARQ for async task processing:
@@ -117,8 +126,19 @@ Required:
 
 Optional AI features:
 - `DEEPSEEK_API_KEY` - For query rewriting (improves match rate)
-- `QUERY_REWRITE_MANDATORY` - Force rewrite on first query (default: false)
+- `QUERY_REWRITE_SCORE_THRESHOLD` - Score threshold for triggering rewrite (default: 0.9, rewrite only when score < threshold)
+- `QUERY_REWRITE_MAX_ATTEMPTS` - Max rewrite attempts (default: 3)
 - `WHISPER_MODEL_NAME` - Whisper model (default: large-v3)
+
+Beat sync (rhythm alignment):
+- `BEAT_SYNC_ENABLED` - Enable beat/onset sync (default: true)
+- `BEAT_SYNC_MODE` - `onset` (drum beat alignment, like 剪映) or `action` (visual action points)
+- `BEAT_SYNC_MAX_ADJUSTMENT_MS` - Max time offset for alignment (default: 500)
+- `BEAT_SYNC_ONSET_TOLERANCE_MS` - Tolerance for onset matching (default: 80)
+
+Video filtering (intro/outro skip):
+- `VIDEO_INTRO_SKIP_MS` - Skip video intro in milliseconds (default: 8000, filters title screens)
+- `VIDEO_OUTRO_SKIP_MS` - Skip video outro in milliseconds (default: 5000, config defined, filter logic pending)
 
 ## Code Conventions
 

@@ -9,6 +9,11 @@ from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+# 导入所有模型以确保它们被注册到 SQLModel metadata
+from src.domain.models.render_job import RenderJob  # noqa: F401
+from src.domain.models.song_mix import LyricLine, SongMixRequest, VideoSegmentMatch  # noqa: F401
+from src.domain.models.beat_sync import BeatAnalysisData, VideoActionCache  # noqa: F401
+
 
 engine: AsyncEngine | None = None
 

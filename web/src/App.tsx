@@ -7,6 +7,7 @@ import VideoLibrary from './pages/assets/VideoLibrary'
 import AudioLibrary from './pages/assets/AudioLibrary'
 import GeneralConfig from './pages/settings/GeneralConfig'
 import RetrieverConfig from './pages/settings/RetrieverConfig'
+import LogViewer from './pages/system/LogViewer'
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="assets/audios" element={<AudioLibrary />} />
         <Route path="settings" element={<GeneralConfig />} />
         <Route path="settings/retriever" element={<RetrieverConfig />} />
+        <Route path="logs" element={<LogViewer />} />
       </Route>
     </Routes>
   )

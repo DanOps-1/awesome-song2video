@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from src.api.v1.routes import mix_lines, mixes, preview, render, render_config
+from src.api.v1.routes import beat_analysis, mix_lines, mixes, preview, render, render_config
 from src.api.v1.routes.admin import router as admin_router
 from src.infra.config.settings import get_settings
 from src.infra.observability.otel import configure_logging
@@ -19,6 +19,7 @@ app.include_router(mix_lines.router)
 app.include_router(preview.router)
 app.include_router(render.router)
 app.include_router(render_config.router)
+app.include_router(beat_analysis.router)
 app.include_router(admin_router)
 
 # 挂载静态文件目录用于视频下载

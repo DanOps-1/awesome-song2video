@@ -50,6 +50,7 @@ class PreviewService:
                 "confidence": segment.score,
                 "fallback": is_fallback,
                 "fallback_reason": fallback_reason,
+                "beat_sync_offset_ms": getattr(segment, "beat_sync_offset_ms", 0),  # 卡点偏移
             }
             manifest.append(entry)
 

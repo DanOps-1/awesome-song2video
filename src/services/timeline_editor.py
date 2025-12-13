@@ -31,6 +31,13 @@ class TimelineEditor:
             items.append(self._serialize_line(line))
         return items
 
+    async def get_line(self, line_id: str) -> dict[str, Any] | None:
+        """获取单个歌词行（含候选片段）。"""
+        line = await timeline_repo.get_line(line_id)
+        if line is None:
+            return None
+        return self._serialize_line(line)
+
     async def lock_line(
         self,
         line_id: str,

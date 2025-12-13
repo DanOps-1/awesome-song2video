@@ -56,8 +56,9 @@ class AppSettings(BaseSettings):
     deepseek_api_key: str | None = None
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     query_rewrite_enabled: bool = True
-    query_rewrite_mandatory: bool = False  # 是否强制改写（第一次查询就改写，而非仅在无结果时）
+    query_rewrite_mandatory: bool = False  # 已废弃，使用 score_threshold 替代
     query_rewrite_max_attempts: int = 3  # 最多尝试改写次数
+    query_rewrite_score_threshold: float = 0.9  # 原始搜索分数低于此阈值时才触发改写
 
     # 检索后端配置
     retriever_backend: Literal["twelvelabs", "clip", "vlm"] = "twelvelabs"
@@ -81,6 +82,21 @@ class AppSettings(BaseSettings):
     # 文本嵌入模型配置
     text_embedding_model: str = "intfloat/multilingual-e5-base"
     text_embedding_device: str | None = None  # 自动选择
+
+    # 节拍卡点功能配置
+    beat_sync_enabled: bool = True  # 是否启用卡点功能
+    beat_sync_mode: Literal["action", "onset"] = "onset"  # 对齐模式: action=动作高光, onset=鼓点对齐(类似剪映)
+    beat_sync_max_adjustment_ms: int = 500  # 最大调整偏移（毫秒）
+    beat_sync_action_weight: float = 0.6  # 动作分数权重（action 模式）
+    beat_sync_beat_weight: float = 0.4  # 节拍分数权重（action 模式）
+    beat_sync_onset_tolerance_ms: int = 80  # 鼓点对齐容差（onset 模式）
+    beat_sync_use_twelvelabs_highlights: bool = True  # 是否使用 TwelveLabs 高光检测
+    beat_sync_fallback_scene_detection: bool = True  # 是否使用 FFmpeg 场景检测作为备选
+    beat_sync_scene_threshold: float = 0.3  # FFmpeg 场景检测阈值
+
+    # 视频片头片尾过滤配置
+    video_intro_skip_ms: int = 8000  # 跳过视频开头的毫秒数（过滤片头标题画面）
+    video_outro_skip_ms: int = 5000  # 跳过视频结尾的毫秒数（过滤片尾画面）
 
 
 @lru_cache()

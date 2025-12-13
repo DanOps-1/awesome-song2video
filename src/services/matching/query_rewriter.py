@@ -122,78 +122,81 @@ class QueryRewriter:
         """
         根据尝试次数返回不同的改写策略。
 
-        - 策略 0：语义简化（Semantic Simplification）。保留核心语义、情感和意象。
-        - 策略 1：动作与视觉冲击（High Impact Action）。如果字面无法搜到，搜动作。
-        - 策略 2：极简名词（Keywords）。
+        专门针对 Tom and Jerry 卡通素材库优化。
+
+        - 策略 0：卡通场景转换（主要策略）
+        - 策略 1：动作强化（备用策略）
+        - 策略 2：通用卡通关键词（兜底策略）
         """
 
-        # 策略 0: 语义简化模式 (Semantic Simplification Mode)
-        # 核心：保留核心语义和情感，去除冗余修饰，但保留关键意象。
-        strategy_0 = """你是一位歌词语义提取专家。
-请将输入的歌词转换为**简洁但保留核心语义**的英文描述，用于视频素材搜索。
+        # 策略 0: 卡通场景转换 (Cartoon Scene Conversion)
+        # 核心：将抽象歌词转换为具体的卡通动画场景描述
+        strategy_0 = """You are a video search query optimizer for a Tom and Jerry cartoon library.
 
-**原则：**
-1. **保留核心动作和物体：** 提取主要的动作、人物、物体。
-2. **保留关键情感词：** 如果有明显的情感（担心、害怕、快乐、悲伤等），保留它们。
-3. **保留生动意象：** 如果有独特的比喻或画面（如"野兽"、"云里雾里"、"月亮"等），保留它们。
-4. **去除冗余修饰：** 去除过于抽象或不影响画面的修饰词。
-5. **翻译成英文：** 最终输出简洁的英文短语（5-15个词）。
+Your task: Convert song lyrics into **concrete visual scene descriptions** that would match Tom and Jerry cartoon clips.
 
-**示例：**
-输入："talking to the moon 放不下的理由 是不是会担心 变成一只野兽"
-输出："talking to the moon, worried about becoming a beast"
+**IMPORTANT RULES:**
+1. Output MUST describe **visible actions or scenes** in a cartoon
+2. Focus on: chasing, running, hiding, fighting, sneaking, eating, sleeping, surprised reactions
+3. Include character descriptions when relevant: "cat chasing mouse", "mouse running away"
+4. Keep output SHORT: 3-8 English words only
+5. NO abstract concepts - only things you can SEE in a cartoon
+6. NO emotional words unless they show on face (angry face, scared expression)
 
-输入："浸泡在时空深的频率 单纯想要呼吸 讨厌云里雾里"
-输出："want to breathe, lost in confusion"
+**Examples:**
+"Baby I'm preying on you tonight" → "cat stalking mouse at night"
+"Hunt you down eat you alive" → "cat chasing and catching mouse"
+"Just like animals" → "wild cat and mouse fighting"
+"Maybe you think that you can hide" → "mouse hiding in hole, cat searching"
+"I can smell your scent from miles" → "cat sniffing and tracking mouse"
+"You can find other fish in the sea" → "fish swimming in water, ocean scene"
+"I can still hear you making that sound" → "cat with big ears listening"
+"The beast inside" → "angry cat with fierce expression"
+"Don't tell no lie" → "cat and mouse arguing, pointing finger"
+"Yeah yeah yeah" → "characters dancing or celebrating"
+"I love your lies" → "cat and mouse tricking each other"
+"You're like a drug" → "cat dizzy or hypnotized"
+"Run free" → "mouse running fast escaping"
 
-输入："说不完的话 找不完的借口 是不是会狠心 把我骄傲解剖"
-输出："endless words and excuses, dissecting pride"
+Lyrics to convert:"""
 
-输入："在那遥远的地方有位好姑娘"
-输出："a girl in a distant place"
+        # 策略 1: 动作强化模式 (Action Boost Mode)
+        # 核心：当第一次搜索失败时，使用更通用的卡通动作
+        strategy_1 = """You are a cartoon video search assistant. Previous search failed.
 
-输入："破碎的镜子映出我的脸"
-输出："broken mirror reflects face"
+Now convert the lyrics to **high-action cartoon scenes** that are common in Tom and Jerry.
 
-当前歌词："""
+**Rules:**
+1. Use GENERIC cartoon actions: chase scene, fight scene, explosion, running, falling, crashing
+2. Keep it simple: 2-5 words
+3. Focus on MOVEMENT and ACTION
 
-        # 策略 1: 动态氛围模式 (Dynamic Vibe Mode)
-        # 核心：当歌词完全抽象（没有物体）时，使用高动态的通用画面。
-        strategy_1 = """你是一个视频素材助理。
-上一轮搜索失败了。
-现在，请将歌词转化为具有**强烈视觉冲击力**或**特定氛围**的英文描述。
+**Examples:**
+"I can't stop" → "character running fast"
+"Breaking apart" → "things breaking and crashing"
+"Feel the heat" → "fire and explosion scene"
+"Lost in your eyes" → "character staring with big eyes"
+Any emotional lyrics → "cartoon character reaction shot"
 
-**规则：**
-1. 如果没有具体物体，描述一个符合歌曲情绪的**通用高动态场景**（如：奔跑、下雨、城市车流、爆炸）。
-2. 重点关注**动态（Movement）**：Mashup 需要画面是动的，不要静态图。
-3. 保持描述简短有力。
+Lyrics:"""
 
-**示例：**
-输入："I can't take it anymore" (情绪崩溃)
-输出："Person screaming underwater, bubbles rising, chaotic movement."
+        # 策略 2: 通用卡通关键词 (Generic Cartoon Keywords)
+        # 核心：兜底策略，确保至少能搜到卡通画面
+        strategy_2 = """Extract 1-2 simple cartoon-related keywords. Search is very difficult.
 
-输入："Love is in the air" (抽象)
-输出："Pink clouds moving fast in the sky, time lapse, dreamy atmosphere."
+**Rules:**
+1. Output only 1-2 simple English words
+2. Must be something visible in cartoons
+3. Prefer: cat, mouse, chase, run, house, kitchen, garden, fight
 
-当前歌词："""
+**Examples:**
+Any hunting/chasing lyrics → "cat mouse chase"
+Any hiding lyrics → "mouse hiding"
+Any emotional lyrics → "cartoon reaction"
+Any love lyrics → "characters together"
+Anything else → "Tom Jerry scene"
 
-        # 策略 2: 极简物体兜底 (Object Keywords)
-        # 核心：只要画面里有这个东西就行。
-        strategy_2 = """你是一个关键词提取器。
-搜索非常困难。请直接提取歌词中任何**可见的物理物体**，翻译成英文。
-
-**规则：**
-1. 只输出 1-2 个英文名词。
-2. 不要动作，不要形容词，只要物体。
-
-**示例：**
-输入："手里的玫瑰已枯萎"
-输出："dead rose"
-
-输入："透过窗户看世界"
-输出："window, glass"
-
-当前歌词："""
+Lyrics:"""
 
         strategies = {0: strategy_0, 1: strategy_1, 2: strategy_2}
 

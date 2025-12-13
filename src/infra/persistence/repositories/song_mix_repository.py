@@ -136,7 +136,16 @@ class SongMixRepository:
 
     async def get_line(self, line_id: str) -> LyricLine | None:
         async with get_session() as session:
-            return await session.get(LyricLine, line_id)
+            line = await session.get(LyricLine, line_id)
+            if line is None:
+                return None
+            # 加载候选片段
+            match_stmt = select(VideoSegmentMatch).where(
+                cast(Any, VideoSegmentMatch.line_id) == line_id
+            )
+            match_result = await session.exec(match_stmt)
+            line.candidates = list(match_result)
+            return line
 
     async def save_line(self, line: LyricLine) -> LyricLine:
         async with get_session() as session:

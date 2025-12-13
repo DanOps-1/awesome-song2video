@@ -1,35 +1,72 @@
 #!/bin/bash
-# 一键关闭项目
+# 一键关闭项目 - 强力版
 
 cd "$(dirname "$0")"
 
 echo "=== 关闭 Song2Video 项目 ==="
 
-# [1/5] 关闭后端
+# 强力杀死进程的函数
+force_kill() {
+    local pattern="$1"
+    local name="$2"
+
+    # 方法1: pkill
+    pkill -9 -f "$pattern" 2>/dev/null
+
+    # 方法2: 通过 ps + kill 确保杀干净
+    local pids=$(ps aux | grep -E "$pattern" | grep -v grep | awk '{print $2}')
+    if [ -n "$pids" ]; then
+        echo "$pids" | xargs kill -9 2>/dev/null
+    fi
+
+    sleep 1
+
+    # 验证
+    if pgrep -f "$pattern" > /dev/null 2>&1; then
+        echo "警告: $name 仍有进程残留，强制清理..."
+        pkill -9 -f "$pattern" 2>/dev/null
+        sleep 1
+    fi
+}
+
+# [1/5] 关闭后端 (所有 uvicorn 相关进程)
 echo "[1/5] 关闭后端..."
-pkill -9 -f "uvicorn.*8000" 2>/dev/null && echo "✓ 后端已关闭" || echo "- 后端未运行"
+force_kill "uvicorn.*src.api.main" "后端"
+force_kill "uvicorn.*8000" "后端"
+# 清理可能的子进程
+pkill -9 -f "python.*src.api" 2>/dev/null || true
 
 # [2/5] 关闭 Timeline Worker
 echo "[2/5] 关闭 Timeline Worker..."
-pkill -9 -f "arq src.workers.timeline_worker" 2>/dev/null && echo "✓ Timeline Worker 已关闭" || echo "- Timeline Worker 未运行"
+force_kill "timeline_worker" "Timeline Worker"
+force_kill "arq.*timeline" "Timeline Worker"
 
 # [3/5] 关闭 Render Worker
 echo "[3/5] 关闭 Render Worker..."
-pkill -9 -f "arq src.workers.render_worker" 2>/dev/null && echo "✓ Render Worker 已关闭" || echo "- Render Worker 未运行"
+force_kill "render_worker" "Render Worker"
+force_kill "arq.*render" "Render Worker"
 
 # [4/5] 关闭管理后台
 echo "[4/5] 关闭管理后台..."
-pkill -9 -f "vite.*6006" 2>/dev/null && echo "✓ 管理后台已关闭" || echo "- 管理后台未运行"
+force_kill "vite.*6006" "管理后台"
+force_kill "node.*web" "管理后台"
 
 # [5/5] 关闭用户前端
 echo "[5/5] 关闭用户前端..."
-pkill -9 -f "vite.*6008" 2>/dev/null && echo "✓ 用户前端已关闭" || echo "- 用户前端未运行"
+force_kill "vite.*6008" "用户前端"
+force_kill "node.*frontend" "用户前端"
 
-# 清理 esbuild 进程
+# 清理所有 esbuild 和 node 相关进程
 pkill -9 -f "esbuild" 2>/dev/null || true
 
 # 等待进程完全退出
 sleep 2
+
+# 清理 Python 缓存（确保下次启动使用最新代码）
+echo ""
+echo "清理 Python 缓存..."
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
 # 验证
 echo ""
@@ -43,40 +80,40 @@ else
 fi
 
 # 检查端口
-if ss -tlnp | grep -q ":8000 "; then
-    echo "警告: 端口 8000 仍被占用"
-else
-    echo "✓ 端口 8000 已释放"
-fi
+check_port() {
+    if ss -tlnp 2>/dev/null | grep -q ":$1 "; then
+        echo "警告: 端口 $1 仍被占用"
+        # 显示占用进程
+        ss -tlnp 2>/dev/null | grep ":$1 " | head -1
+        return 1
+    else
+        echo "✓ 端口 $1 已释放"
+        return 0
+    fi
+}
+
+check_port 8000
+check_port 6006
+check_port 6008
 
 # 检查 Workers
-if pgrep -f "arq src.workers.timeline_worker" > /dev/null; then
+if pgrep -f "timeline_worker" > /dev/null 2>&1; then
     echo "警告: Timeline Worker 仍在运行"
+    pgrep -af "timeline_worker"
 else
     echo "✓ Timeline Worker 已停止"
 fi
 
-if pgrep -f "arq src.workers.render_worker" > /dev/null; then
+if pgrep -f "render_worker" > /dev/null 2>&1; then
     echo "警告: Render Worker 仍在运行"
+    pgrep -af "render_worker"
 else
     echo "✓ Render Worker 已停止"
-fi
-
-# 检查前端端口
-if ss -tlnp | grep -q ":6006 "; then
-    echo "警告: 端口 6006 仍被占用"
-else
-    echo "✓ 端口 6006 已释放"
-fi
-
-if ss -tlnp | grep -q ":6008 "; then
-    echo "警告: 端口 6008 仍被占用"
-else
-    echo "✓ 端口 6008 已释放"
 fi
 
 echo ""
 echo "=== 关闭完成 ==="
 echo ""
-echo "提示: Redis 作为共享服务未被关闭。如需关闭 Redis，请运行:"
-echo "  redis-cli shutdown"
+echo "提示: "
+echo "  - Redis 作为共享服务未被关闭。如需关闭: redis-cli shutdown"
+echo "  - Python 缓存已清理，下次启动将使用最新代码"

@@ -11,6 +11,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Path
 
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
+from src.infra.persistence.database import get_session
+from src.domain.models.beat_sync import BeatAnalysisData
 from src.services.preview.preview_service import preview_service
 
 
@@ -65,11 +67,32 @@ async def get_preview_manifest(
             logger.warning("preview.api.empty_manifest", mix_id=mix_id)
             raise HTTPException(status_code=404, detail="manifest is empty")
 
+        # 获取节拍分析数据（卡点功能）
+        beat_sync_info = None
+        try:
+            async with get_session() as session:
+                from sqlmodel import select
+                stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
+                beat_result = await session.execute(stmt)
+                beat_data = beat_result.scalar_one_or_none()
+                if beat_data:
+                    beat_sync_info = {
+                        "enabled": beat_data.enabled,
+                        "bpm": beat_data.bpm,
+                        "beat_count": len(beat_data.beat_times_ms),
+                        "tempo_stability": beat_data.tempo_stability,
+                    }
+        except Exception as exc:
+            logger.warning("preview.api.beat_sync_query_failed", mix_id=mix_id, error=str(exc))
+
+        result["beat_sync"] = beat_sync_info
+
         logger.info(
             "preview.api.manifest_returned",
             mix_id=mix_id,
             line_count=len(result["manifest"]),
             fallback_count=result["metrics"]["fallback_count"],
+            beat_sync_enabled=beat_sync_info.get("enabled") if beat_sync_info else None,
         )
 
         return result

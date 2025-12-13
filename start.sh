@@ -1,17 +1,35 @@
 #!/bin/bash
-# 一键启动项目
+# 一键启动项目 - 确保加载最新代码
 
 set -e
 cd "$(dirname "$0")"
 
 echo "=== 启动 Song2Video 项目 ==="
 
+# [预处理] 调用 stop.sh 彻底清理旧进程
+echo ""
+echo "=== 预处理：清理旧进程 ==="
+if [ -f "./stop.sh" ]; then
+    bash ./stop.sh 2>/dev/null || true
+else
+    echo "警告: stop.sh 不存在，尝试手动清理..."
+    pkill -9 -f "uvicorn.*src.api" 2>/dev/null || true
+    pkill -9 -f "arq.*worker" 2>/dev/null || true
+    pkill -9 -f "vite.*600" 2>/dev/null || true
+fi
+
+# 清理 Python 缓存（确保加载最新代码）
+echo ""
+echo "清理 Python 缓存..."
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
 # 确保日志目录存在
 mkdir -p logs
 
 # 检查端口是否被占用
 check_port() {
-    if ss -tlnp | grep -q ":$1 "; then
+    if ss -tlnp 2>/dev/null | grep -q ":$1 "; then
         echo "警告: 端口 $1 已被占用，尝试清理..."
         return 1
     fi
@@ -35,10 +53,8 @@ else
 fi
 
 # [1/5] 启动后端
+echo ""
 echo "[1/5] 启动后端 (端口 8000)..."
-# 总是先杀掉旧进程，确保加载最新代码
-pkill -9 -f "uvicorn.*8000" 2>/dev/null || true
-sleep 2
 nohup .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
@@ -54,26 +70,18 @@ fi
 
 # [2/5] 启动 Timeline Worker（歌词识别、视频匹配）
 echo "[2/5] 启动 Timeline Worker..."
-pkill -9 -f "arq src.workers.timeline_worker" 2>/dev/null || true
-sleep 1
 nohup .venv/bin/arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
 TIMELINE_PID=$!
 echo "Timeline Worker PID: $TIMELINE_PID"
 
 # [3/5] 启动 Render Worker（视频渲染）
 echo "[3/5] 启动 Render Worker..."
-pkill -9 -f "arq src.workers.render_worker" 2>/dev/null || true
-sleep 1
 nohup .venv/bin/arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
 RENDER_PID=$!
 echo "Render Worker PID: $RENDER_PID"
 
 # [4/5] 启动管理后台
 echo "[4/5] 启动管理后台 (端口 6006)..."
-if ! check_port 6006; then
-    pkill -9 -f "vite.*6006" 2>/dev/null || true
-    sleep 2
-fi
 cd web
 nohup npm run dev -- --port 6006 --host 0.0.0.0 > ../logs/admin.log 2>&1 &
 ADMIN_PID=$!
@@ -82,10 +90,6 @@ cd ..
 
 # [5/5] 启动用户前端
 echo "[5/5] 启动用户前端 (端口 6008)..."
-if ! check_port 6008; then
-    pkill -9 -f "vite.*6008" 2>/dev/null || true
-    sleep 2
-fi
 cd frontend
 nohup npm run dev -- --port 6008 --host 0.0.0.0 > ../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!

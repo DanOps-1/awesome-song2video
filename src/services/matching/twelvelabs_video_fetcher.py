@@ -165,7 +165,7 @@ class TwelveLabsVideoFetcher:
         # 🛡️ 边界检查：获取源视频时长，防止裁剪范围超出
         source_duration_ms = self._get_video_duration_ms(source_url)
         if source_duration_ms:
-            # 情况 1: 起始时间就超出了 -> 必须循环
+            # 情况 1: 起始时间超出视频时长 -> 直接失败
             if start_ms >= source_duration_ms:
                 logger.warning(
                     "twelvelabs.clip_out_of_bounds",
@@ -173,12 +173,11 @@ class TwelveLabsVideoFetcher:
                     start_ms=start_ms,
                     end_ms=end_ms,
                     source_duration_ms=source_duration_ms,
-                    message="裁剪起始时间超出视频时长，切换至循环模式",
+                    message="裁剪起始时间超出视频时长，放弃该候选",
                 )
-                return self._cut_clip_with_loop(source_url, duration, target, video_id)
+                return False
 
-            # 情况 2: 结束时间超出 -> 必须循环以保证时长 (Duration is King!)
-            # 之前的逻辑是 truncate，导致音画不同步。现在改为循环。
+            # 情况 2: 结束时间超出 -> 直接失败（禁止循环，确保画面连贯）
             if end_ms > source_duration_ms:
                 logger.warning(
                     "twelvelabs.clip_exceeds_duration",
@@ -187,9 +186,9 @@ class TwelveLabsVideoFetcher:
                     end_ms=end_ms,
                     duration_needed=duration,
                     source_duration_ms=source_duration_ms,
-                    message="裁剪范围超出视频末尾，切换至循环模式以保证时长对齐",
+                    message="裁剪范围超出视频时长，放弃该候选",
                 )
-                return self._cut_clip_with_loop(source_url, duration, target, video_id)
+                return False
 
         # 🔧 修复音频画面不对齐问题：使用精确裁剪模式
         # 问题原因：
@@ -310,82 +309,6 @@ class TwelveLabsVideoFetcher:
         except Exception as exc:  # noqa: BLE001
             logger.warning("ffprobe.duration_failed", source=source_url, error=str(exc))
         return None
-
-    def _cut_clip_with_loop(
-        self, source_url: str, duration: float, target: Path, video_id: str
-    ) -> bool:
-        """使用循环模式裁剪视频（当起始时间超出视频时长时）。
-
-        FFmpeg -stream_loop 参数会循环输入流，从头开始裁剪所需时长。
-
-        Args:
-            source_url: 视频文件路径或 URL
-            duration: 需要裁剪的时长（秒）
-            target: 输出文件路径
-            video_id: 视频 ID（用于日志）
-
-        Returns:
-            是否成功
-        """
-        cmd = [
-            "ffmpeg",
-            "-y",
-            "-stream_loop",
-            "-1",  # 无限循环输入流
-            "-i",
-            source_url,
-            "-t",
-            f"{duration:.3f}",  # 从头裁剪指定时长
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            target.as_posix(),
-        ]
-
-        try:
-            logger.info(
-                "twelvelabs.video_clip_loop",
-                video_id=video_id,
-                target=target.as_posix(),
-                source=source_url,
-                duration=duration,
-            )
-            subprocess.run(
-                cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-
-            # 验证输出文件
-            if target.exists() and self._verify_video_streams(target):
-                return True
-
-            logger.warning(
-                "twelvelabs.clip_loop_failed", video_id=video_id, target=target.as_posix()
-            )
-            if target.exists():
-                target.unlink()
-
-        except subprocess.CalledProcessError as exc:  # noqa: BLE001
-            stderr_output = exc.stderr if exc.stderr else ""
-            error_lines = stderr_output.strip().split("\n")[-5:] if stderr_output else []
-            logger.error(
-                "twelvelabs.clip_loop_failed",
-                video_id=video_id,
-                returncode=exc.returncode,
-                ffmpeg_error=error_lines,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("twelvelabs.clip_loop_exception", video_id=video_id, error=str(exc))
-
-        return False
 
     def _verify_video_streams(self, video_path: Path) -> bool:
         """使用 ffprobe 验证视频文件是否包含有效的视频流。"""

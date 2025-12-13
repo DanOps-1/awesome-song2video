@@ -18,9 +18,21 @@
 
 ## 核心特性
 
-### 1. 智能音视频同步系统 🆕
+### 1. 视频比例与双语字幕 🆕
 
-#### 1.1 前奏检测与跳过
+#### 1.1 视频比例选择
+- **多比例支持**：支持 16:9（默认）和 4:3 输出视频
+- **智能背景处理**：使用模糊背景方式处理不同比例视频，保持画面完整
+- **用户可选**：在创建任务时选择输出视频比例
+
+#### 1.2 双语字幕
+- **中英双语**：支持同时显示中文原文和英文翻译
+- **用户可选**：双语字幕为可选功能，默认仅显示原文
+- **多翻译源**：集成免费翻译 API 作为备选方案
+
+### 2. 智能音视频同步系统
+
+#### 2.1 前奏检测与跳过
 - **RMS 能量分析**：使用音频能量分析自动检测人声开始位置
 - **自动跳过前奏**：检测到 >= 5 秒的纯音乐前奏时自动跳过，提升歌词识别准确率
 - **精准时间戳**：自动调整时间戳偏移，确保字幕与原始音频完美同步
@@ -32,13 +44,13 @@
 - 自动使用带后缀的临时文件避免冲突
 - no_speech_prob 阈值可配置（默认 0.6），平衡片段数量和质量
 
-#### 1.2 歌词片段细粒度优化 🆕
+#### 2.2 歌词片段细粒度优化
 - **词级时间戳**：启用 Whisper word_timestamps 获取更细粒度的片段
 - **片段数量提升**：从 26 个提升至 49-74 个（视歌曲而定）
 - **画面更丰富**：更频繁的画面切换，每个片段 2-4 秒
 - **禁用 Prompt**：移除 initial_prompt 避免 Whisper 合并短语
 
-#### 1.3 音频裁剪与时间对齐 🆕
+#### 2.3 音频裁剪与时间对齐
 - **音频精准裁剪**：自动裁剪音频只保留歌词部分（从第一句到最后一句）
 - **解决同步问题**：修复视频画面比音频提前的问题
 - **字幕时间归零**：所有字幕时间从 00:00:00 开始（相对于第一个歌词）
@@ -59,56 +71,95 @@
 - 字幕从 00:00:00 开始（而非 00:00:12）
 - 视频从 0s 开始播放，完美对齐音频
 
-### 2. 智能查询改写系统 🆕
+### 3. 智能查询改写系统
+- **基于分数阈值的智能改写** 🆕：
+  - 原始搜索 score >= 0.9 → 跳过改写（直白歌词）
+  - 原始搜索 score < 0.9 → 触发改写 → 对比选择更好的结果（抽象歌词）
+  - 避免直白歌词被过度改写干扰匹配
 - **LLM 驱动**：使用 DeepSeek AI 将抽象歌词转换为具体视觉描述
-- **智能重试**：3 次递进式改写策略（具体→通用→极简）
-- **成功率提升**：从 0% 提升至 100%（含 fallback）
+- **Tom and Jerry 专属优化**：提示词针对卡通素材库定制
+  - 策略 0：卡通场景转换（猫鼠追逐、躲藏、打斗等可视化场景）
+  - 策略 1：动作强化模式（通用卡通动作关键词）
+  - 策略 2：极简兜底（确保能搜到卡通画面）
+- **智能重试**：最多 3 次递进式改写策略
 - **渐进式降级**：温度参数逐步提升（0.3 → 0.5 → 0.7 → 1.0）
 - 详见：[QUERY_REWRITER_README.md](./QUERY_REWRITER_README.md)
 
-### 2. 视频片段去重机制 🆕
+### 4. 视频片段去重机制
 - **全局追踪**：记录每个视频片段的使用次数
 - **优先策略**：未使用片段 > 使用次数最少的片段
 - **智能降级**：候选不足时允许重复使用，并记录警告
 - **大候选池**：每句歌词获取 20 个候选片段，提供充足去重空间
 - 详见：[VIDEO_DEDUPLICATION_README.md](./VIDEO_DEDUPLICATION_README.md)
 
-### 3. 语义对齐优化 🆕
+### 5. 素材视频片头过滤
+- **自动跳过片头**：过滤视频开头 8 秒内的片段（片头标题画面）
+- **可配置时长**：通过 `VIDEO_INTRO_SKIP_MS` 环境变量调整
+- **日志追踪**：记录 `twelvelabs.intro_filtered` 事件，便于监控
+
+### 6. 语义对齐优化
 - **中间位置提取**：从 API 返回片段的中间位置截取，而非开头
 - **精彩画面捕获**：AI 匹配的高光画面通常在片段中间区域
 - **边界保护**：确保提取范围不超出原始片段
 - **时长精确匹配**：视频片段时长与歌词时长完全一致
 - 详见：[CLIP_EXTRACTION_STRATEGY.md](./CLIP_EXTRACTION_STRATEGY.md)
 
-### 4. Preview Manifest API
+### 7. 鼓点自动卡点（类似剪映）
+- **鼓点检测**：使用 librosa onset_detect 检测音频实际鼓点/冲击点
+- **双模式支持**：
+  - `onset` 模式（默认）：视频音频鼓点 → 音乐鼓点对齐
+  - `action` 模式：视频画面动作点 → 音乐节拍对齐
+- **智能偏移计算**：自动计算最佳时间偏移使鼓点对齐
+- **5 候选容错**：每句歌词保留 5 个候选视频，渲染失败时自动回退
+- **严格时长检查**：禁止视频循环，时长不足的候选直接丢弃
+
+### 8. Preview Manifest API
 - 查看完整的歌词-视频时间线清单
 - 每句歌词的视频片段、起止时间与置信度
 - 支持 Fallback 标识，方便审核与补片
 
-### 5. 渲染质量监控
+### 9. 渲染质量监控
 - 字幕与画面对齐偏差量化追踪
 - 平均/最大延迟等关键指标
 - 实时推送到 Prometheus 监控平台
 
-### 6. Fallback 优雅降级
+### 10. Fallback 优雅降级
 - TwelveLabs 无匹配时自动使用备用视频
 - 完整的追踪与告警机制
 - 支持人工补片工作流
 
-### 7. 并行裁剪调度 🆕
+### 11. 并行裁剪调度
 - `RenderClipScheduler` 为每个 clip 创建 `clip_task_id`，记录排队、下载、写盘等阶段耗时。
 - 渲染 Worker 使用 `asyncio.TaskGroup` + 全局 `Semaphore` 控制 clip 级并行（默认 4），并提供 per-video 限流（默认 2）。
 - `render_jobs.metrics.render.clip_stats` 持久化 `total_clips`、`peak_parallelism`、`avg_clip_duration_ms` 等指标，便于回溯。
 
-### 8. 渲染配置热加载 🆕
+### 12. 渲染配置热加载
 - 提供 `/api/v1/render/config` GET/PATCH API，可在不重启 Worker 的情况下调整并发、重试、占位素材。
 - PATCH 成功后立即通过 Redis `render:config` 频道推送，Worker 打印 `render_worker.config_hot_reload` 日志并更新运行中的 TaskGroup。
 - 保留所有配置变更的结构化审计日志（包含 `trace_id`、旧值/新值、操作者信息）。
 
-### 9. 占位片段回退与观测 🆕
+### 13. 占位片段回退与观测
 - `scripts/media/create_placeholder_clip.py` 生成三秒黑屏 + beep，占位素材路径由配置决定。
 - `PlaceholderManager` 统一校验文件存在性、生成临时 clip，并在任务结束后清理 `artifacts/render_tmp/*`。
 - Prometheus 暴露 `render_clip_placeholder_total`、`render_clip_failures_total` 指标，Loki 日志包含 `fallback_reason` 与 `clip_task_id`。
+
+### 14. 实时日志查看（管理后台）🆕
+- **日志查看 API**：`/api/v1/admin/logs` 系列接口
+  - `GET /logs` - 查询历史日志，支持关键词和级别过滤
+  - `GET /logs/stream` - 实时日志流（Server-Sent Events）
+  - `GET /logs/files` - 列出可用日志文件
+- **前端日志查看器**：管理后台 → 系统 → 实时日志
+  - 实时日志流显示，支持暂停/继续
+  - 关键词过滤和日志级别筛选
+  - 快捷过滤按钮（beat, render, timeline, error, warning）
+  - 自动滚动到最新日志
+
+### 15. 节拍分析 API 🆕
+- **手动触发分析**：`POST /api/v1/mixes/{id}/analyze-beats`
+- **获取分析结果**：`GET /api/v1/mixes/{id}/beats`
+  - BPM、节拍时间点、强拍位置、节奏稳定性
+- **卡点开关控制**：`PATCH /api/v1/mixes/{id}/beat-sync`
+  - 可为单个 Mix 启用或禁用卡点功能
 
 ## 技术栈
 
@@ -225,13 +276,21 @@ python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fall
 - `TL_AUDIO_SEARCH_ENABLED`: 是否启用音频模态（audio modal）匹配，默认 `false`，仅在明确需要音频 embedding 时开启，以免消耗额外配额
 - `DEEPSEEK_API_KEY`: DeepSeek API 密钥（用于智能查询改写，提升匹配率）
 - `QUERY_REWRITE_ENABLED`: 是否启用查询改写，默认 `true`
-- `QUERY_REWRITE_MANDATORY`: 是否强制改写（第一次查询就改写，而非仅在无结果时），默认 `false`，推荐抽象歌词场景设为 `true`
+- `QUERY_REWRITE_SCORE_THRESHOLD`: 触发改写的分数阈值，默认 `0.9`（原始搜索分数低于此值才改写）
 - `QUERY_REWRITE_MAX_ATTEMPTS`: 最多改写尝试次数，默认 `3`
 - `RENDER_CLIP_CONCURRENCY`: 渲染阶段 clip 级并行槽位，默认 `4`
 - `RENDER_CONFIG_CHANNEL`: RenderClipConfig 热加载 Redis 频道，默认 `render:config`
 - `PLACEHOLDER_CLIP_PATH`: 占位素材路径，默认 `media/fallback/clip_placeholder.mp4`
 - `WHISPER_MODEL_NAME`: Whisper 模型名称，可选 `tiny`/`base`/`small`/`medium`/`large-v3`，默认 `large-v3`
 - `WHISPER_NO_SPEECH_THRESHOLD`: Whisper 非语音阈值，默认 `0.6`，值越低过滤越严格（片段越多），值越高保留越多（片段越少）
+- `BEAT_SYNC_ENABLED`: 是否启用节奏卡点，默认 `true`
+- `BEAT_SYNC_MODE`: 卡点模式，`onset`（鼓点对齐，类似剪映）或 `action`（动作点对齐），默认 `onset`
+- `BEAT_SYNC_MAX_ADJUSTMENT_MS`: 最大时间偏移（毫秒），默认 `500`
+- `BEAT_SYNC_ONSET_TOLERANCE_MS`: 鼓点对齐容差（毫秒），默认 `80`
+
+素材视频过滤：
+- `VIDEO_INTRO_SKIP_MS`: 跳过视频开头的毫秒数（过滤片头标题画面），默认 `8000`
+- `VIDEO_OUTRO_SKIP_MS`: 跳过视频结尾的毫秒数（过滤片尾画面），默认 `5000`（配置已定义，过滤逻辑待实现）
 
 **硬件建议**：
 - **16GB RAM + 多核 CPU**：推荐使用 `medium` 模型（平衡精度和速度）
@@ -543,6 +602,12 @@ sqlite3 dev.db "SELECT id, timeline_status FROM song_mix_requests WHERE id='...'
 以下功能计划在后续版本中实现：
 
 ### 核心功能
+- [ ] **视频片尾过滤**：实现 `VIDEO_OUTRO_SKIP_MS` 配置的过滤逻辑
+  - 难点：TwelveLabs 搜索 API 返回的结果不包含视频总时长，无法判断片段是否在结尾区域
+  - 可能方案：
+    - A. 搜索时额外调用 Retrieve API 获取每个视频的元数据（增加 API 调用）
+    - B. 预先缓存所有素材视频的时长元数据到数据库
+    - C. 在渲染阶段过滤（使用 ffprobe 获取时长后判断）
 - [ ] **去重逻辑优化**：优化视频片段去重算法，提升去重效率和准确度
 - [ ] **Redis 校验**：添加 Redis 连接健康检查和数据一致性校验
 - [ ] **非人声部分匹配乐器画面**：前奏、间奏、尾奏等非人声部分自动匹配乐器演奏画面
@@ -606,6 +671,24 @@ sqlite3 dev.db "SELECT id, timeline_status FROM song_mix_requests WHERE id='...'
 
 ## 更新日志
 
+### v0.5.0 (2025-12-14)
+- 🆕 新增视频比例选择功能：支持 16:9（默认）和 4:3 输出视频
+- 🆕 新增双语字幕支持：中英双语字幕，用户可选
+- 🆕 新增实时日志查看功能：管理后台支持 SSE 实时日志流
+- 🆕 新增节拍分析 API：手动触发分析、获取结果、卡点开关控制
+- 🔧 优化视频比例处理：使用模糊背景方式，保持画面完整
+- 🔧 优化视频去重逻辑：使用随机选择替代固定 fallback
+- 🔧 修复字幕相关问题：扩展名、字体大小、边距优化
+- 🔧 改进用户体验：错误提示、状态按钮、名称长度限制
+
+### v0.4.0 (2025-12-13)
+- 🆕 新增鼓点自动卡点功能（类似剪映）：基于 librosa onset_detect 检测音频鼓点
+- 🆕 新增双模式卡点：`onset` 模式（鼓点对齐）和 `action` 模式（动作点对齐）
+- 🆕 新增 5 候选容错机制：每句歌词保留 5 个候选视频，渲染失败时自动回退
+- 🔧 修复视频循环播放问题：禁止循环，时长不足的候选直接丢弃
+- 🔧 修复 Fallback 视频时间错误：统一从 0 开始裁剪
+- 📝 完善渲染日志：候选裁剪失败时记录详细日志并自动尝试下一个
+
 ### v0.3.0 (2025-11-30)
 - 🆕 新增用户前端 (frontend/)：提供歌曲上传、视频生成、结果查看功能
 - 🆕 新增管理后台 (web/)：任务列表、任务详情、资源管理、配置页面
@@ -647,5 +730,5 @@ sqlite3 dev.db "SELECT id, timeline_status FROM song_mix_requests WHERE id='...'
 
 ---
 
-**文档版本**: v0.3.0
-**最后更新**: 2025-11-30
+**文档版本**: v0.5.0
+**最后更新**: 2025-12-14

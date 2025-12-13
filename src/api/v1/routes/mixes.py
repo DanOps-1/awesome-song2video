@@ -9,7 +9,9 @@ from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from src.domain.models.song_mix import SongMixRequest
+from src.domain.models.beat_sync import BeatAnalysisData
 from src.infra.config.settings import get_settings
+from src.infra.persistence.database import get_session
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.workers import redis_settings
 from src.workers.timeline_worker import build_timeline, transcribe_lyrics, match_videos
@@ -52,10 +54,20 @@ class MixResponse(BaseModel):
     aspect_ratio: str = "16:9"
 
 
+class BeatSyncInfo(BaseModel):
+    """卡点信息。"""
+
+    enabled: bool = False
+    bpm: float | None = None
+    beat_count: int = 0
+    tempo_stability: float | None = None
+
+
 class MixDetailResponse(MixResponse):
     """混剪任务详情，包含歌词行。"""
 
     lines: list[LyricLineResponse] = []
+    beat_sync: BeatSyncInfo | None = None
 
 
 class UpdateLineRequest(BaseModel):
@@ -137,6 +149,24 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
         for line in lines
     ]
 
+    # 获取卡点信息
+    beat_sync_info = None
+    try:
+        async with get_session() as session:
+            from sqlmodel import select
+            stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
+            result = await session.execute(stmt)
+            beat_data = result.scalar_one_or_none()
+            if beat_data:
+                beat_sync_info = BeatSyncInfo(
+                    enabled=beat_data.enabled,
+                    bpm=beat_data.bpm,
+                    beat_count=len(beat_data.beat_times_ms),
+                    tempo_stability=beat_data.tempo_stability,
+                )
+    except Exception:
+        pass  # 卡点信息获取失败不影响主流程
+
     return MixDetailResponse(
         id=mix.id,
         song_title=mix.song_title,
@@ -146,6 +176,7 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
         render_status=mix.render_status,
         aspect_ratio=mix.aspect_ratio,
         lines=line_responses,
+        beat_sync=beat_sync_info,
     )
 
 

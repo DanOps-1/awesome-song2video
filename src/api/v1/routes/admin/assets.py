@@ -268,9 +268,13 @@ async def upload_audio(file: UploadFile = File(...)) -> UploadResponse:
     audio_dir = Path(settings.audio_asset_dir)
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    # 生成唯一文件名
+    # 生成唯一文件名（限制文件名长度，避免超过文件系统限制）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     stem = Path(file.filename).stem
+    # 文件名最大长度 255 字节，预留 timestamp(15) + suffix(5) + 下划线(1) = 21 字节
+    max_stem_len = 100  # 保守限制，避免中文字符占多字节
+    if len(stem) > max_stem_len:
+        stem = stem[:max_stem_len]
     new_filename = f"{stem}_{timestamp}{suffix}"
     file_path = audio_dir / new_filename
 
