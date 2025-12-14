@@ -123,78 +123,86 @@ class QueryRewriter:
         根据尝试次数返回不同的改写策略。
 
         专门针对 Tom and Jerry 卡通素材库优化。
+        核心原则：输出必须包含角色（Tom/Jerry/cat/mouse），禁止纯物品/场景描述。
 
-        - 策略 0：卡通场景转换（主要策略）
-        - 策略 1：动作强化（备用策略）
-        - 策略 2：通用卡通关键词（兜底策略）
+        - 策略 0：角色动作优先（主要策略）
+        - 策略 1：角色表情特写（备用策略）
+        - 策略 2：角色互动兜底（兜底策略）
         """
 
-        # 策略 0: 卡通场景转换 (Cartoon Scene Conversion)
-        # 核心：将抽象歌词转换为具体的卡通动画场景描述
+        # 策略 0: 角色动作优先 (Character Action First)
+        # 核心：必须输出角色+动作，禁止纯物品/场景
         strategy_0 = """You are a video search query optimizer for a Tom and Jerry cartoon library.
 
-Your task: Convert song lyrics into **concrete visual scene descriptions** that would match Tom and Jerry cartoon clips.
+Your task: Convert song lyrics into **character action descriptions** for Tom and Jerry clips.
 
-**IMPORTANT RULES:**
-1. Output MUST describe **visible actions or scenes** in a cartoon
-2. Focus on: chasing, running, hiding, fighting, sneaking, eating, sleeping, surprised reactions
-3. Include character descriptions when relevant: "cat chasing mouse", "mouse running away"
-4. Keep output SHORT: 3-8 English words only
-5. NO abstract concepts - only things you can SEE in a cartoon
-6. NO emotional words unless they show on face (angry face, scared expression)
+**CRITICAL RULES - MUST FOLLOW:**
+1. Output MUST contain a CHARACTER: "Tom", "Jerry", "cat", "mouse", or "characters"
+2. Output MUST contain an ACTION or EXPRESSION the character is doing
+3. NEVER output objects only (NO: "perfume bottle", "stage", "gifts", "electricity")
+4. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
+5. Keep output SHORT: 3-8 English words
+6. Focus on CHARACTER CLOSE-UPS with clear facial expressions or body movements
 
-**Examples:**
-"Baby I'm preying on you tonight" → "cat stalking mouse at night"
-"Hunt you down eat you alive" → "cat chasing and catching mouse"
-"Just like animals" → "wild cat and mouse fighting"
-"Maybe you think that you can hide" → "mouse hiding in hole, cat searching"
-"I can smell your scent from miles" → "cat sniffing and tracking mouse"
-"You can find other fish in the sea" → "fish swimming in water, ocean scene"
-"I can still hear you making that sound" → "cat with big ears listening"
-"The beast inside" → "angry cat with fierce expression"
-"Don't tell no lie" → "cat and mouse arguing, pointing finger"
-"Yeah yeah yeah" → "characters dancing or celebrating"
-"I love your lies" → "cat and mouse tricking each other"
-"You're like a drug" → "cat dizzy or hypnotized"
-"Run free" → "mouse running fast escaping"
+**GOOD Examples (character + action):**
+"Baby I'm preying on you tonight" → "Tom stalking Jerry at night"
+"Hunt you down eat you alive" → "Tom chasing Jerry aggressively"
+"Just like animals" → "Tom and Jerry fighting wildly"
+"I can smell your scent from miles" → "Tom sniffing with big nose"
+"The beast inside" → "Tom angry face close-up growling"
+"You can't deny" → "Tom screaming with open mouth"
+"Yeah yeah yeah" → "Tom and Jerry dancing together"
+"I love your lies" → "Jerry tricking Tom smiling"
+"Feel the heat" → "Tom sweating nervous expression"
+"Run free" → "Jerry running fast escaping"
+
+**BAD Examples (DO NOT OUTPUT LIKE THIS):**
+"I can smell your scent" → ❌ "perfume bottles on table" (no character!)
+"The beast inside" → ❌ "dark stage scene" (no character!)
+"Feel the heat" → ❌ "fire and flames" (no character!)
 
 Lyrics to convert:"""
 
-        # 策略 1: 动作强化模式 (Action Boost Mode)
-        # 核心：当第一次搜索失败时，使用更通用的卡通动作
-        strategy_1 = """You are a cartoon video search assistant. Previous search failed.
+        # 策略 1: 角色表情特写 (Character Expression Close-up)
+        # 核心：当第一次搜索分数低时，聚焦角色面部表情
+        strategy_1 = """You are a cartoon video search assistant. Focus on CHARACTER EXPRESSIONS.
 
-Now convert the lyrics to **high-action cartoon scenes** that are common in Tom and Jerry.
+Convert lyrics to **Tom or Jerry facial expression/reaction shots**.
 
-**Rules:**
-1. Use GENERIC cartoon actions: chase scene, fight scene, explosion, running, falling, crashing
-2. Keep it simple: 2-5 words
-3. Focus on MOVEMENT and ACTION
+**STRICT RULES:**
+1. Output MUST start with "Tom" or "Jerry" or "cat" or "mouse"
+2. Focus on FACE and EXPRESSION: shocked, angry, happy, scared, crying, laughing
+3. Keep it simple: 3-5 words
+4. Prefer close-up shots of character faces
 
 **Examples:**
-"I can't stop" → "character running fast"
-"Breaking apart" → "things breaking and crashing"
-"Feel the heat" → "fire and explosion scene"
-"Lost in your eyes" → "character staring with big eyes"
-Any emotional lyrics → "cartoon character reaction shot"
+"I can't stop" → "Tom running panicked face"
+"Breaking apart" → "Jerry crying sad expression"
+"Feel the heat" → "Tom sweating scared face"
+"Lost in your eyes" → "Tom love-struck dreamy eyes"
+"The beast inside" → "Tom fierce angry growling"
+"You can't deny" → "Tom shocked surprised face"
+Any emotional lyrics → "Tom exaggerated reaction face"
 
 Lyrics:"""
 
-        # 策略 2: 通用卡通关键词 (Generic Cartoon Keywords)
-        # 核心：兜底策略，确保至少能搜到卡通画面
-        strategy_2 = """Extract 1-2 simple cartoon-related keywords. Search is very difficult.
+        # 策略 2: 角色互动兜底 (Character Interaction Fallback)
+        # 核心：兜底策略，确保至少有角色互动画面
+        strategy_2 = """Output a simple Tom and Jerry character interaction. This is the final fallback.
 
-**Rules:**
-1. Output only 1-2 simple English words
-2. Must be something visible in cartoons
-3. Prefer: cat, mouse, chase, run, house, kitchen, garden, fight
+**ABSOLUTE RULES:**
+1. Output MUST contain "Tom" or "Jerry"
+2. Maximum 4 words
+3. Simple common actions only
 
 **Examples:**
-Any hunting/chasing lyrics → "cat mouse chase"
-Any hiding lyrics → "mouse hiding"
-Any emotional lyrics → "cartoon reaction"
-Any love lyrics → "characters together"
-Anything else → "Tom Jerry scene"
+Any hunting/chasing lyrics → "Tom chasing Jerry"
+Any hiding lyrics → "Jerry hiding from Tom"
+Any emotional lyrics → "Tom surprised face"
+Any love lyrics → "Tom and Jerry together"
+Any angry lyrics → "Tom angry at Jerry"
+Any happy lyrics → "Jerry happy dancing"
+Anything else → "Tom Jerry interaction"
 
 Lyrics:"""
 

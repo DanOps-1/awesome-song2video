@@ -14,7 +14,7 @@ from src.infra.config.settings import get_settings
 from src.pipelines.lyrics_ingest.transcriber import transcribe_with_timestamps
 from src.services.matching.query_rewriter import QueryRewriter
 from src.services.matching.twelvelabs_client import client
-from src.audio.beat_detector import BeatAnalysisResult
+from src.audio.beat_detector import BeatAnalysisResult, find_nearest_beat
 from src.audio.onset_detector import OnsetResult
 from src.services.matching.action_detector import action_detector
 from src.services.matching.beat_aligner import beat_aligner
@@ -80,6 +80,13 @@ class TimelineBuilder:
         self._overlap_threshold = 0.0  # 任何重叠 > 0 就跳过
         # 缓存所有曾经见过的候选片段，用于随机选择
         self._all_seen_candidates: list[dict[str, Any]] = []
+        # 卡点相关配置
+        self._beat_align_max_offset_ms = 200  # 画面切换最多提前/延后 200ms 对齐节拍
+
+        # 画面连贯性：追踪上一个使用的视频，优先选择同源片段
+        self._last_used_video_id: str | None = None
+        self._continuity_bonus = 0.15  # 同源视频的评分加成
+
         # 通用搜索查询词列表，用于获取多样化的素材
         self._generic_queries = [
             "action scene",
@@ -140,6 +147,60 @@ class TimelineBuilder:
                 return True
 
         return False
+
+    def _align_start_to_beat(
+        self,
+        start_ms: int,
+        end_ms: int,
+        beats: BeatAnalysisResult | None,
+        prev_end_ms: int = 0,
+    ) -> tuple[int, int]:
+        """将画面切换点（start_ms）对齐到最近的节拍。
+
+        简化版卡点：让每次画面切换都落在音乐节拍上，
+        视觉效果会更有节奏感。
+
+        Args:
+            start_ms: 原始开始时间
+            end_ms: 原始结束时间
+            beats: 节拍分析结果
+            prev_end_ms: 上一个片段的结束时间（防止重叠）
+
+        Returns:
+            (aligned_start_ms, aligned_end_ms) 对齐后的时间
+        """
+        if not beats or not self._settings.beat_sync_enabled:
+            return start_ms, end_ms
+
+        # 找最近的节拍
+        result = find_nearest_beat(
+            beats, start_ms, max_offset_ms=self._beat_align_max_offset_ms
+        )
+
+        if result is None:
+            return start_ms, end_ms
+
+        nearest_beat_ms, offset_ms = result
+
+        # 确保不与上一个片段重叠
+        if nearest_beat_ms < prev_end_ms:
+            return start_ms, end_ms
+
+        # 保持时长不变，只调整起止时间
+        duration = end_ms - start_ms
+        aligned_start = nearest_beat_ms
+        aligned_end = aligned_start + duration
+
+        if offset_ms != 0:
+            self._logger.debug(
+                "timeline_builder.beat_aligned",
+                original_start=start_ms,
+                aligned_start=aligned_start,
+                offset_ms=offset_ms,
+                nearest_beat=nearest_beat_ms,
+            )
+
+        return aligned_start, aligned_end
 
     def _get_audio_duration(self, audio_path: Path) -> int:
         """使用 ffprobe 获取音频文件时长（毫秒）。"""
@@ -327,6 +388,22 @@ class TimelineBuilder:
 
             start_ms = int(float(seg.get("start", 0)) * 1000)
             end_ms = int(float(seg.get("end", 0)) * 1000)
+
+            # 🎵 简化版卡点：将画面切换点对齐到最近的节拍
+            if beats and self._settings.beat_sync_enabled:
+                aligned_start, aligned_end = self._align_start_to_beat(
+                    start_ms, end_ms, beats, prev_end_ms=cursor_ms
+                )
+                if aligned_start != start_ms:
+                    self._logger.info(
+                        "timeline_builder.cut_aligned_to_beat",
+                        text=text[:20],
+                        original_start=start_ms,
+                        aligned_start=aligned_start,
+                        offset_ms=aligned_start - start_ms,
+                    )
+                    start_ms = aligned_start
+                    end_ms = aligned_end
 
             # 间隙处理
             if cursor_ms > 0 and start_ms > cursor_ms:
@@ -1137,15 +1214,25 @@ class TimelineBuilder:
                 continue
 
             # 通过所有检查，加入有效候选列表
+            # 🎬 画面连贯性：同源视频加分
+            original_score = float(candidate.get("score", 0.0))
+            continuity_bonus = 0.0
+            if self._last_used_video_id and video_id == self._last_used_video_id:
+                continuity_bonus = self._continuity_bonus
+            adjusted_score = original_score + continuity_bonus
+
             valid_candidates.append(
                 {
                     "candidate": candidate,
                     "usage_count": 0,  # 肯定是 0，因为已经过滤掉了 > 0 的
-                    "score": float(candidate.get("score", 0.0)),
+                    "score": adjusted_score,
+                    "original_score": original_score,
+                    "continuity_bonus": continuity_bonus,
+                    "video_id": video_id,
                 }
             )
 
-        # 策略4：按评分降序排序选择最佳的
+        # 策略4：按评分降序排序选择最佳的（包含连贯性加成）
         valid_candidates.sort(key=lambda x: -x["score"])
 
         # 提取候选片段并限制数量
@@ -1166,15 +1253,28 @@ class TimelineBuilder:
         # 记录选中的片段详细信息
         for idx, item in enumerate(valid_candidates[:limit]):
             candidate = item["candidate"]
+            continuity_info = ""
+            if item.get("continuity_bonus", 0) > 0:
+                continuity_info = f" [连贯性加成 +{item['continuity_bonus']:.2f}]"
             self._logger.info(
                 "timeline_builder.selected_clip",
                 index=idx + 1,
-                video_id=candidate.get("source_video_id"),
+                video_id=item.get("video_id"),
                 start_ms=candidate.get("start_time_ms"),
                 end_ms=candidate.get("end_time_ms"),
                 duration_ms=candidate.get("end_time_ms", 0) - candidate.get("start_time_ms", 0),
-                score=candidate.get("score"),
-                message="严格去重通过：未使用且无重叠",
+                original_score=item.get("original_score"),
+                adjusted_score=item.get("score"),
+                continuity_bonus=item.get("continuity_bonus", 0),
+                message=f"选中片段{continuity_info}",
+            )
+
+        # 🎬 更新最后使用的视频ID（用于连贯性评分）
+        if valid_candidates:
+            self._last_used_video_id = valid_candidates[0].get("video_id")
+            self._logger.debug(
+                "timeline_builder.continuity_tracking",
+                last_video_id=self._last_used_video_id,
             )
 
         self._logger.info(
@@ -1183,6 +1283,7 @@ class TimelineBuilder:
             valid_count=len(valid_candidates),
             rejected_count=rejected_count,
             selected_count=len(selected),
+            last_video_id=self._last_used_video_id,
             message=f"严格去重：从{len(candidates)}个候选中筛选出{len(valid_candidates)}个有效，选择了{len(selected)}个",
         )
 
