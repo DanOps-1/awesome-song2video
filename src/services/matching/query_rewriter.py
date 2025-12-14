@@ -2,12 +2,37 @@
 
 from __future__ import annotations
 
+import random
+import re
 import structlog
 from openai import AsyncOpenAI
 
 from src.infra.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# 拟声词/感叹词模式 - 这些词没有语义，应该匹配高能量动作画面
+INTERJECTION_PATTERNS = [
+    r"^(oh+|ah+|eh+|uh+|yeah+|ye+ah|ya+h|wo+|wow+|oo+h|aa+h|hey+|ha+|hah+|whoa+|yea+)\s*[~!]*$",
+    r"^(la+|na+|da+|ba+|sha+|do+|re+|mi+|fa+|so+)\s*(la+|na+|da+|ba+|sha+|do+|re+|mi+|fa+|so+)*\s*[~!]*$",
+    r"^[~!?。，、\s]*$",  # 纯标点/空白
+]
+
+# 高能量动作查询词 - 用于拟声词/感叹词
+HIGH_ENERGY_QUERIES = [
+    "Tom Jerry dramatic action",
+    "Tom jumping excited",
+    "Jerry running fast",
+    "Tom and Jerry chase explosion",
+    "Tom screaming shocked",
+    "Jerry celebrating victory",
+    "Tom crashing falling",
+    "dramatic cartoon moment",
+    "Tom angry attack",
+    "Jerry escape dramatic",
+    "Tom surprised face",
+    "cartoon action climax",
+]
 
 
 class QueryRewriter:
@@ -20,6 +45,10 @@ class QueryRewriter:
         self._base_url = settings.deepseek_base_url
         self._client: AsyncOpenAI | None = None
         self._cache: dict[str, str] = {}
+        # 编译拟声词正则表达式
+        self._interjection_patterns = [re.compile(p, re.IGNORECASE) for p in INTERJECTION_PATTERNS]
+        # 高能量查询索引，用于轮换
+        self._high_energy_index = 0
 
         if self._enabled and self._api_key:
             self._client = AsyncOpenAI(
@@ -38,6 +67,30 @@ class QueryRewriter:
                 has_api_key=bool(self._api_key),
             )
 
+    def _is_interjection(self, text: str) -> bool:
+        """
+        检测文本是否为拟声词/感叹词。
+
+        这类词没有实际语义，如：
+        - yeah, oh, ah, wow, hey
+        - la la la, na na na
+        - 纯标点符号
+        """
+        cleaned = text.strip().lower()
+        if not cleaned:
+            return True
+
+        for pattern in self._interjection_patterns:
+            if pattern.match(cleaned):
+                return True
+        return False
+
+    def _get_high_energy_query(self) -> str:
+        """获取一个高能量动作查询词（轮换使用）。"""
+        query = HIGH_ENERGY_QUERIES[self._high_energy_index % len(HIGH_ENERGY_QUERIES)]
+        self._high_energy_index += 1
+        return query
+
     async def rewrite(self, original_query: str, attempt: int = 0) -> str:
         """
         改写查询文本。
@@ -49,6 +102,19 @@ class QueryRewriter:
         Returns:
             改写后的查询，如果未启用或失败则返回原始文本
         """
+        # 🎵 特殊处理：拟声词/感叹词 → 高能量动作画面
+        # 这类词（yeah, oh, ah, la la la 等）没有语义，不应该用 LLM 改写
+        # 而应该直接匹配高能量/卡点画面
+        if self._is_interjection(original_query):
+            high_energy_query = self._get_high_energy_query()
+            logger.info(
+                "query_rewriter.interjection_detected",
+                original=original_query,
+                rewritten=high_energy_query,
+                message="拟声词/感叹词 → 高能量动作画面",
+            )
+            return high_energy_query
+
         if not self._enabled or not self._client:
             return original_query
 

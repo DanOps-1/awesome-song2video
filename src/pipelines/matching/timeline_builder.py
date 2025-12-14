@@ -1013,16 +1013,34 @@ class TimelineBuilder:
         """
         获取候选片段，基于分数阈值的智能改写策略：
 
-        1. 原始查询 → 获取结果和 top score
-        2. score >= threshold (0.9) → 直接使用原始结果（直白歌词）
-        3. score < threshold → 尝试改写 → 对比选择更好的结果（抽象歌词）
-        4. 改写后分数更高 → 使用改写结果
-        5. 改写后分数更低 → 使用原始结果
+        1. 拟声词/感叹词 → 直接使用高能量动作查询（跳过原始搜索）
+        2. 原始查询 → 获取结果和 top score
+        3. score >= threshold (0.9) → 直接使用原始结果（直白歌词）
+        4. score < threshold → 尝试改写 → 对比选择更好的结果（抽象歌词）
+        5. 改写后分数更高 → 使用改写结果
+        6. 改写后分数更低 → 使用原始结果
         """
         key = (text, limit)
         if key not in self._candidate_cache:
             candidates: list[dict[str, Any]] = []
             score_threshold = self._settings.query_rewrite_score_threshold
+
+            # 🎵 特殊处理：拟声词/感叹词直接使用高能量查询，跳过原始搜索
+            if self._rewriter._is_interjection(text):
+                high_energy_query = self._rewriter._get_high_energy_query()
+                self._logger.info(
+                    "timeline_builder.interjection_shortcut",
+                    original=text,
+                    query=high_energy_query,
+                    message="拟声词/感叹词 → 直接搜索高能量动作画面",
+                )
+                candidates = await client.search_segments(high_energy_query, limit=limit)
+                self._candidate_cache[key] = candidates
+                # 将新候选加入全局缓存
+                for c in candidates:
+                    if c not in self._all_seen_candidates:
+                        self._all_seen_candidates.append(c)
+                return candidates
 
             # 第一步：用原始歌词搜索
             original_candidates = await client.search_segments(text, limit=limit)
