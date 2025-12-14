@@ -1040,97 +1040,84 @@ class TimelineBuilder:
 
     async def _get_candidates(self, text: str, limit: int) -> list[dict[str, Any]]:
         """
-        获取候选片段，基于分数阈值的智能改写策略：
+        获取候选片段，循环改写直到分数达标：
 
-        1. 拟声词/感叹词 → 直接使用高能量动作查询（跳过原始搜索）
-        2. 原始查询 → 获取结果和 top score
-        3. score >= threshold (0.9) → 直接使用原始结果（直白歌词）
-        4. score < threshold → 尝试改写 → 对比选择更好的结果（抽象歌词）
-        5. 改写后分数更高 → 使用改写结果
-        6. 改写后分数更低 → 使用原始结果
+        策略：分数必须达到 threshold (1.0)，否则持续改写重新搜索
+        1. 用改写后的查询搜索
+        2. 如果分数 < threshold，继续改写
+        3. 循环直到分数达标或达到最大尝试次数
+        4. 使用找到的最佳结果
         """
         key = (text, limit)
         if key not in self._candidate_cache:
-            candidates: list[dict[str, Any]] = []
             score_threshold = self._settings.query_rewrite_score_threshold
+            max_attempts = self._settings.query_rewrite_max_attempts
 
-            # 第一步：用原始歌词搜索
-            original_candidates = await client.search_segments(text, limit=limit)
-            original_top_score = (
-                float(original_candidates[0].get("score", 0.0))
-                if original_candidates
-                else 0.0
-            )
+            # 追踪最佳结果
+            best_candidates: list[dict[str, Any]] = []
+            best_score: float = 0.0
+            best_query: str = text
 
-            self._logger.info(
-                "timeline_builder.original_search",
-                query=text[:50],
-                count=len(original_candidates),
-                top_score=round(original_top_score, 3),
-                threshold=score_threshold,
-            )
-
-            # 第二步：根据分数决定是否改写
-            if original_top_score >= score_threshold:
-                # 分数足够高，直接使用原始结果（直白歌词，不需要改写）
-                candidates = original_candidates
-                self._logger.info(
-                    "timeline_builder.skip_rewrite",
-                    query=text[:30],
-                    score=round(original_top_score, 3),
-                    reason="score >= threshold, no rewrite needed",
-                )
-            elif self._rewriter._enabled:
-                # 分数低于阈值，使用 DeepSeek 改写一次
-                rewritten_query = await self._rewriter.rewrite(text)
-
-                # 如果改写结果与原始相同，使用原始结果
-                if rewritten_query == text:
-                    self._logger.debug(
-                        "timeline_builder.rewrite_identical",
-                        original=text[:30],
-                    )
-                    candidates = original_candidates
+            # 循环改写直到分数达标
+            for attempt in range(max_attempts):
+                # 改写查询（第一次也改写，确保查询质量）
+                if self._rewriter._enabled:
+                    current_query = await self._rewriter.rewrite(text, attempt=attempt)
                 else:
-                    # 用改写后的查询搜索
-                    rewritten_candidates = await client.search_segments(
-                        rewritten_query, limit=limit
-                    )
-                    rewritten_top_score = (
-                        float(rewritten_candidates[0].get("score", 0.0))
-                        if rewritten_candidates
-                        else 0.0
-                    )
+                    current_query = text
 
+                # 搜索
+                current_candidates = await client.search_segments(current_query, limit=limit)
+                current_top_score = (
+                    float(current_candidates[0].get("score", 0.0))
+                    if current_candidates
+                    else 0.0
+                )
+
+                self._logger.info(
+                    "timeline_builder.rewrite_attempt",
+                    attempt=attempt + 1,
+                    max_attempts=max_attempts,
+                    original=text[:30],
+                    query=current_query[:50],
+                    score=round(current_top_score, 3),
+                    threshold=score_threshold,
+                    best_so_far=round(best_score, 3),
+                )
+
+                # 更新最佳结果
+                if current_top_score > best_score:
+                    best_score = current_top_score
+                    best_candidates = current_candidates
+                    best_query = current_query
                     self._logger.info(
-                        "timeline_builder.rewrite_search",
-                        original=text[:30],
-                        rewritten=rewritten_query[:50],
-                        original_score=round(original_top_score, 3),
-                        rewritten_score=round(rewritten_top_score, 3),
+                        "timeline_builder.new_best_score",
+                        attempt=attempt + 1,
+                        query=current_query[:50],
+                        score=round(current_top_score, 3),
                     )
 
-                    # 选择更好的结果
-                    if rewritten_top_score > original_top_score:
-                        candidates = rewritten_candidates
-                        self._logger.info(
-                            "timeline_builder.rewrite_better",
-                            original=text[:30],
-                            rewritten=rewritten_query[:50],
-                            score_improvement=round(rewritten_top_score - original_top_score, 3),
-                        )
-                    else:
-                        candidates = original_candidates
-                        self._logger.info(
-                            "timeline_builder.rewrite_not_better",
-                            original=text[:30],
-                            rewritten=rewritten_query[:50],
-                            reason="original score was better",
-                        )
+                # 如果分数达标，停止循环
+                if current_top_score >= score_threshold:
+                    self._logger.info(
+                        "timeline_builder.score_reached",
+                        attempt=attempt + 1,
+                        query=current_query[:50],
+                        score=round(current_top_score, 3),
+                        threshold=score_threshold,
+                    )
+                    break
 
-            else:
-                # 改写未启用，使用原始结果
-                candidates = original_candidates
+            # 使用最佳结果
+            candidates = best_candidates
+            self._logger.info(
+                "timeline_builder.final_result",
+                original=text[:30],
+                best_query=best_query[:50],
+                best_score=round(best_score, 3),
+                attempts_used=attempt + 1,
+                reached_threshold=best_score >= score_threshold,
+            )
 
             self._candidate_cache[key] = candidates
 

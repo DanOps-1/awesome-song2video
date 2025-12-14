@@ -57,8 +57,8 @@ class AppSettings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     query_rewrite_enabled: bool = True
     query_rewrite_mandatory: bool = False  # 已废弃，使用 score_threshold 替代
-    query_rewrite_max_attempts: int = 3  # 最多尝试改写次数
-    query_rewrite_score_threshold: float = 0.9  # 原始搜索分数低于此阈值时才触发改写
+    query_rewrite_max_attempts: int = 5  # 最多尝试改写次数（增加到5次以追求更高分数）
+    query_rewrite_score_threshold: float = 1.0  # 分数必须达到 1.0，否则持续改写
 
     # 检索后端配置
     retriever_backend: Literal["twelvelabs", "clip", "vlm"] = "twelvelabs"
@@ -99,7 +99,7 @@ class AppSettings(BaseSettings):
     video_outro_skip_ms: int = 8000  # 跳过视频结尾的毫秒数（过滤片尾 Credits 如 "Produced by Chuck Jones"）
 
     # 候选片段最低分数阈值（低于此分数的片段将被过滤）
-    candidate_min_score: float = 0.3  # 过滤掉分数过低的候选，避免匹配到无关画面
+    candidate_min_score: float = 0.5  # 过滤掉分数过低的候选，提高到 0.5
 
 
 @lru_cache()
