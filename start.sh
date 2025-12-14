@@ -59,14 +59,19 @@ nohup .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > l
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
 
-# 等待后端启动
-sleep 5
-if ss -tlnp | grep -q ":8000 "; then
-    echo "✓ 后端启动成功"
-else
-    echo "✗ 后端启动失败，请检查 logs/backend.log"
-    exit 1
-fi
+# 等待后端启动（reload 模式启动较慢，需要加载模型）
+echo "等待后端启动..."
+for i in {1..30}; do
+    if ss -tlnp 2>/dev/null | grep -q ":8000 "; then
+        echo "✓ 后端启动成功 (${i}秒)"
+        break
+    fi
+    sleep 1
+    if [ $i -eq 30 ]; then
+        echo "✗ 后端启动超时，请检查 logs/backend.log"
+        exit 1
+    fi
+done
 
 # [2/5] 启动 Timeline Worker（歌词识别、视频匹配）
 echo "[2/5] 启动 Timeline Worker..."
@@ -96,8 +101,10 @@ FRONTEND_PID=$!
 echo "用户前端 PID: $FRONTEND_PID"
 cd ..
 
-# 等待前端启动
-sleep 10
+# 等待前端启动（Vite 启动较慢，约需 15 秒）
+echo ""
+echo "等待前端服务启动..."
+sleep 15
 echo ""
 echo "=== 服务状态 ==="
 
