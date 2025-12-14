@@ -1051,24 +1051,17 @@ class TimelineBuilder:
                     reason="score >= threshold, no rewrite needed",
                 )
             elif self._rewriter._enabled:
-                # 分数低于阈值，尝试改写
-                max_attempts = self._settings.query_rewrite_max_attempts
-                best_candidates = original_candidates
-                best_score = original_top_score
-                best_query = text
+                # 分数低于阈值，使用 DeepSeek 改写一次
+                rewritten_query = await self._rewriter.rewrite(text)
 
-                for attempt in range(max_attempts):
-                    rewritten_query = await self._rewriter.rewrite(text, attempt=attempt)
-
-                    # 如果改写结果与原始相同，跳过
-                    if rewritten_query == text or rewritten_query == best_query:
-                        self._logger.debug(
-                            "timeline_builder.rewrite_identical",
-                            original=text[:30],
-                            attempt=attempt + 1,
-                        )
-                        continue
-
+                # 如果改写结果与原始相同，使用原始结果
+                if rewritten_query == text:
+                    self._logger.debug(
+                        "timeline_builder.rewrite_identical",
+                        original=text[:30],
+                    )
+                    candidates = original_candidates
+                else:
                     # 用改写后的查询搜索
                     rewritten_candidates = await client.search_segments(
                         rewritten_query, limit=limit
@@ -1083,52 +1076,28 @@ class TimelineBuilder:
                         "timeline_builder.rewrite_search",
                         original=text[:30],
                         rewritten=rewritten_query[:50],
-                        attempt=attempt + 1,
                         original_score=round(original_top_score, 3),
                         rewritten_score=round(rewritten_top_score, 3),
                     )
 
-                    # 如果改写结果更好，更新最佳结果
-                    if rewritten_top_score > best_score:
-                        best_candidates = rewritten_candidates
-                        best_score = rewritten_top_score
-                        best_query = rewritten_query
+                    # 选择更好的结果
+                    if rewritten_top_score > original_top_score:
+                        candidates = rewritten_candidates
                         self._logger.info(
                             "timeline_builder.rewrite_better",
                             original=text[:30],
                             rewritten=rewritten_query[:50],
                             score_improvement=round(rewritten_top_score - original_top_score, 3),
                         )
-
-                    # 如果分数已经足够高，提前退出
-                    if best_score >= score_threshold:
+                    else:
+                        candidates = original_candidates
                         self._logger.info(
-                            "timeline_builder.rewrite_threshold_reached",
-                            query=best_query[:50],
-                            score=round(best_score, 3),
+                            "timeline_builder.rewrite_not_better",
+                            original=text[:30],
+                            rewritten=rewritten_query[:50],
+                            reason="original score was better",
                         )
-                        break
 
-                candidates = best_candidates
-
-                # 记录最终决策
-                if best_query != text:
-                    self._logger.info(
-                        "timeline_builder.rewrite_decision",
-                        original=text[:30],
-                        final_query=best_query[:50],
-                        original_score=round(original_top_score, 3),
-                        final_score=round(best_score, 3),
-                        used_rewrite=True,
-                    )
-                else:
-                    self._logger.info(
-                        "timeline_builder.rewrite_decision",
-                        original=text[:30],
-                        original_score=round(original_top_score, 3),
-                        used_rewrite=False,
-                        reason="original score was best",
-                    )
             else:
                 # 改写未启用，使用原始结果
                 candidates = original_candidates
