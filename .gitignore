@@ -80,3 +80,4 @@ data/*.db
 # 根目录 Node 文件（仅前端目录需要）
 /package.json
 /package-lock.json
+analysis_frames/
