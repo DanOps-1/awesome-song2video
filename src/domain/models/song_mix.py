@@ -23,6 +23,7 @@ class VideoSegmentMatch(SQLModel, table=True):
     tags: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
     preview_url: Optional[str] = None
     generated_by: str
+    search_query: Optional[str] = None  # 用于搜索匹配视频的查询文本（改写后的查询）
     beat_sync_offset_ms: int = Field(default=0)  # 卡点时间偏移（毫秒）
     created_at: datetime | None = Field(default_factory=datetime.utcnow)
 

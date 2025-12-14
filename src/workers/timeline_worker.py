@@ -386,6 +386,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
                     end_time_ms=candidate["end_time_ms"],
                     score=candidate["score"],
                     generated_by="auto",
+                    search_query=candidate.get("search_query"),  # 保存搜索查询文本
                     beat_sync_offset_ms=int(candidate.get("beat_sync_offset_ms", 0)),
                 )
             )
@@ -466,6 +467,7 @@ async def build_timeline(ctx: dict | None, mix_id: str) -> None:
                     end_time_ms=candidate["end_time_ms"],
                     score=candidate["score"],
                     generated_by="auto",
+                    search_query=candidate.get("search_query"),  # 保存搜索查询文本
                     beat_sync_offset_ms=int(candidate.get("beat_sync_offset_ms", 0)),
                 )
             )

@@ -96,6 +96,7 @@ class TimelineEditor:
                 end_time_ms=int(item.get("end", 0)),
                 score=item.get("score", 0.0),
                 generated_by="rerank",
+                search_query=query,  # 保存用于重新搜索的查询文本
             )
             candidates.append(match)
             serialized.append(
@@ -105,6 +106,7 @@ class TimelineEditor:
                     "start_time_ms": match.start_time_ms,
                     "end_time_ms": match.end_time_ms,
                     "score": match.score,
+                    "search_query": match.search_query,  # 展示搜索查询文本
                 }
             )
 
@@ -131,6 +133,7 @@ class TimelineEditor:
                     "start_time_ms": candidate.start_time_ms,
                     "end_time_ms": candidate.end_time_ms,
                     "score": candidate.score,
+                    "search_query": candidate.search_query,  # 展示搜索查询文本
                 }
                 for candidate in getattr(line, "candidates", [])
             ],

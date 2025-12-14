@@ -856,6 +856,7 @@ class TimelineBuilder:
                 "start_time_ms": clip_start,
                 "end_time_ms": clip_end,
                 "score": candidate.get("score", 0.0),
+                "search_query": candidate.get("search_query"),  # 保留搜索查询文本
                 # 保留原始数据供参考
                 "api_start_ms": api_start,
                 "api_end_ms": api_end,
@@ -1108,8 +1109,11 @@ class TimelineBuilder:
                     )
                     break
 
-            # 使用最佳结果
+            # 使用最佳结果，并为每个候选添加搜索查询文本
             candidates = best_candidates
+            for c in candidates:
+                c["search_query"] = best_query  # 保存用于搜索的查询文本
+
             self._logger.info(
                 "timeline_builder.final_result",
                 original=text[:30],

@@ -859,6 +859,12 @@ export default function Status() {
                                 ? ` | ${line.candidates.length} 个候选`
                                 : ' | 将使用默认视频'}
                             </p>
+                            {/* 搜索词：直接显示在歌词下方 */}
+                            {line.candidates.length > 0 && line.candidates[0].search_query && (
+                              <p className="text-xs text-blue-600 mt-1 bg-blue-50 px-2 py-1 rounded inline-block" title={line.candidates[0].search_query}>
+                                🔍 {line.candidates[0].search_query.length > 60 ? line.candidates[0].search_query.slice(0, 60) + '...' : line.candidates[0].search_query}
+                              </p>
+                            )}
                           </div>
 
                           {/* 右侧：展开候选按钮和确认按钮 */}

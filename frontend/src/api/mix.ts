@@ -24,6 +24,7 @@ export interface CandidateInfo {
   start_time_ms: number
   end_time_ms: number
   score: number
+  search_query?: string  // 用于搜索匹配视频的查询文本
 }
 
 export interface LineInfo {
