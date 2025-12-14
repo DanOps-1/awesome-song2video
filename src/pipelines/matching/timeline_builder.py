@@ -1025,23 +1025,6 @@ class TimelineBuilder:
             candidates: list[dict[str, Any]] = []
             score_threshold = self._settings.query_rewrite_score_threshold
 
-            # 🎵 特殊处理：拟声词/感叹词直接使用高能量查询，跳过原始搜索
-            if self._rewriter._is_interjection(text):
-                high_energy_query = self._rewriter._get_high_energy_query()
-                self._logger.info(
-                    "timeline_builder.interjection_shortcut",
-                    original=text,
-                    query=high_energy_query,
-                    message="拟声词/感叹词 → 直接搜索高能量动作画面",
-                )
-                candidates = await client.search_segments(high_energy_query, limit=limit)
-                self._candidate_cache[key] = candidates
-                # 将新候选加入全局缓存
-                for c in candidates:
-                    if c not in self._all_seen_candidates:
-                        self._all_seen_candidates.append(c)
-                return candidates
-
             # 第一步：用原始歌词搜索
             original_candidates = await client.search_segments(text, limit=limit)
             original_top_score = (
