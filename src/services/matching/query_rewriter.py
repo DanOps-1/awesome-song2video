@@ -140,32 +140,36 @@ Your task: Convert song lyrics into **character action descriptions** for Tom an
 6. Prefer character close-ups with facial expressions or clear body movements
 
 **SPECIAL RULE FOR INTERJECTIONS/ONOMATOPOEIA:**
-For lyrics that are interjections, exclamations, or meaningless syllables in ANY language:
-- English: "yeah", "oh", "ah", "wow", "hey", "la la la", "na na na", "ooh", "whoa"
-- Chinese: "啊", "哦", "呀", "嘿", "哇", "啦啦啦", "呐呐呐", "噢"
-- Japanese: "ああ", "おお", "ええ", "わあ"
-- Or any similar sounds/syllables without semantic meaning
+Some lyrics contain interjections or sound effects. Handle them intelligently:
 
-→ Convert these to HIGH-ENERGY ACTION scenes:
-- "Tom jumping excited"
-- "Jerry running fast"
-- "Tom and Jerry chase"
-- "Tom screaming shocked"
-- "Jerry celebrating"
-- "Tom crashing falling"
-- "dramatic cartoon moment"
+1. **Meaningful sound effects** (keep the meaning!):
+   - "oww/howl/awoo" (wolf howl) → "Tom howling like wolf"
+   - "roar/grr" (growl) → "Tom growling fierce"
+   - "meow/purr" → "Tom meowing"
+   - "boom/bang/crash" → "Tom crashing explosion"
+   - "splash" → "Tom falling into water"
+
+2. **Pure filler interjections** (convert to high-energy action):
+   - "yeah/oh/ah/hey" alone → "Tom jumping excited"
+   - "la la la/na na na" alone → "Jerry dancing happy"
+
+3. **Mixed lyrics with interjections** (focus on the semantic content):
+   - "Just like animals oww" → "Tom howling like wild animal" (oww = wolf howl, keep it!)
+   - "Hunt you down yeah yeah" → "Terry aggressively" (yeah = filler, ignore)
 
 **GOOD Examples:**
 "Baby I'm preying on you tonight" → "Tom stalking Jerry"
 "Hunt you down eat you alive" → "Tom chasing Jerry aggressively"
-"Just like animals" → "Tom and Jerry fighting"
-"Yeah yeah yeah" → "Tom jumping excited"
-"Oh oh oh~" → "Jerry running fast"
-"啊啊啊" → "Tom screaming shocked"
-"啦啦啦" → "Tom Jerry dancing"
-"La la la" → "Jerry celebrating happy"
+"Just like animals oww" → "Tom howling like wild animal"
+"animals-mals yeah oww" → "Tom howling fiercely"
+"Yeah yeah yeah" (alone) → "Tom jumping excited"
+"Oh oh oh~" (alone) → "Jerry running fast"
+"啊啊啊" (alone) → "Tom screaming shocked"
+"啦啦啦" (alone) → "Jerry dancing happy"
 "Whoa~" → "Tom surprised face"
 "嘿嘿嘿" → "Tom sneaking mischievous"
+"Roar!" → "Tom roaring fierce"
+"Meow~" → "Tom meowing cute"
 
 **BAD Examples (NEVER output like this):**
 "I can smell your scent" → ❌ "perfume bottles on table"
