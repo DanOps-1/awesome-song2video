@@ -783,18 +783,36 @@ class TimelineBuilder:
         self, raw_candidates: list[dict[str, int | float | str]], start_ms: int, end_ms: int
     ) -> list[dict[str, int | float | str]]:
         """
-        规范化候选视频片段，过滤掉时长不足的候选。
+        规范化候选视频片段，过滤掉时长不足或分数过低的候选。
 
         过滤策略：
         - 视频片段时长必须 >= 歌词时长，否则丢弃
+        - 分数必须 >= candidate_min_score，否则丢弃
         - 禁止循环播放，确保画面连贯性
         """
         lyric_duration_ms = end_ms - start_ms
         lyric_duration_s = lyric_duration_ms / 1000.0
+        min_score = self._settings.candidate_min_score
+        low_score_filtered = 0
 
         def _candidate_defaults(
             candidate: dict[str, int | float | str],
         ) -> dict[str, int | float | str] | None:
+            nonlocal low_score_filtered
+
+            # 🎯 分数过滤：过滤掉分数过低的候选
+            score = float(candidate.get("score", 0.0))
+            if score < min_score:
+                low_score_filtered += 1
+                self._logger.debug(
+                    "timeline_builder.score_too_low",
+                    video_id=candidate.get("video_id"),
+                    score=round(score, 3),
+                    min_score=min_score,
+                    message="分数过低，丢弃该候选",
+                )
+                return None
+
             api_start = int(candidate.get("start", start_ms))
             api_end = int(candidate.get("end", end_ms))
             lyric_duration = end_ms - start_ms
@@ -849,12 +867,22 @@ class TimelineBuilder:
             }
 
         if raw_candidates:
-            # 处理所有候选，过滤掉 None（时长不匹配的）
+            # 处理所有候选，过滤掉 None（时长不匹配或分数过低的）
             normalized = []
             for c in raw_candidates:
                 result = _candidate_defaults(c)
                 if result is not None:
                     normalized.append(result)
+
+            # 记录低分过滤统计
+            if low_score_filtered > 0:
+                self._logger.info(
+                    "timeline_builder.low_score_filtered",
+                    filtered_count=low_score_filtered,
+                    min_score=min_score,
+                    remaining=len(normalized),
+                    message=f"过滤了 {low_score_filtered} 个低分候选（< {min_score}）",
+                )
 
             # 如果所有候选都被过滤掉了，返回空列表，让调用方使用随机选择
             if not normalized:
@@ -862,7 +890,8 @@ class TimelineBuilder:
                     "timeline_builder.all_candidates_filtered",
                     lyric_duration_s=round(lyric_duration_s, 2),
                     original_count=len(raw_candidates),
-                    message="所有候选视频时长都不匹配，返回空列表待随机选择",
+                    low_score_filtered=low_score_filtered,
+                    message="所有候选都被过滤（时长不足或分数过低），返回空列表待随机选择",
                 )
                 return []
 

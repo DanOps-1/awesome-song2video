@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import re
 import structlog
 from openai import AsyncOpenAI
 
 from src.infra.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
+
+# 角色名称关键词（用于验证查询是否包含 Tom & Jerry 角色）
+CHARACTER_KEYWORDS = [
+    "tom", "jerry", "cat", "mouse", "kitten", "kitty",
+    "feline", "rodent", "tabby", "猫", "鼠", "老鼠",
+]
 
 
 class QueryRewriter:
@@ -38,6 +45,34 @@ class QueryRewriter:
                 has_api_key=bool(self._api_key),
             )
 
+    def _contains_character(self, query: str) -> bool:
+        """检查查询是否包含 Tom & Jerry 角色关键词"""
+        query_lower = query.lower()
+        for keyword in CHARACTER_KEYWORDS:
+            if keyword in query_lower:
+                return True
+        return False
+
+    def _ensure_character_in_query(self, query: str) -> str:
+        """
+        确保查询包含角色名称。
+
+        如果查询不包含任何角色关键词，在前面添加 "Tom and Jerry"。
+        这样可以确保 TwelveLabs 搜索结果更可能包含主角。
+        """
+        if self._contains_character(query):
+            return query
+
+        # 不包含角色名称，添加 "Tom and Jerry" 前缀
+        fixed_query = f"Tom and Jerry {query}"
+        logger.info(
+            "query_rewriter.character_added",
+            original=query,
+            fixed=fixed_query,
+            message="查询缺少角色名称，已添加 'Tom and Jerry' 前缀",
+        )
+        return fixed_query
+
     async def rewrite(self, original_query: str, attempt: int = 0) -> str:
         """
         改写查询文本。
@@ -67,6 +102,10 @@ class QueryRewriter:
 
         try:
             rewritten = await self._call_llm(original_query, attempt)
+
+            # 🎬 强制角色验证：确保查询包含 Tom/Jerry 角色
+            rewritten = self._ensure_character_in_query(rewritten)
+
             self._cache[cache_key] = rewritten
             logger.info(
                 "query_rewriter.rewritten",
@@ -82,7 +121,8 @@ class QueryRewriter:
                 attempt=attempt,
                 error=str(e),
             )
-            return original_query
+            # 即使失败，也确保原始查询包含角色名称
+            return self._ensure_character_in_query(original_query)
 
     async def _call_llm(self, query: str, attempt: int = 0) -> str:
         """
@@ -138,6 +178,16 @@ Your task: Convert song lyrics into **character action descriptions** for Tom an
 4. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
 5. Keep output SHORT: 3-6 English words only
 6. Prefer character close-ups with facial expressions or clear body movements
+7. Understand the EMOTIONAL/METAPHORICAL meaning, NOT literal meaning
+
+**METAPHORICAL LYRICS - Understand the emotion, not literal words:**
+- "counting stars" = romantic/dreamy/hopeful → "Tom Jerry looking up dreamy" (NOT counting objects!)
+- "losing sleep" = worried/anxious → "Tom tossing turning worried" (NOT just sleeping)
+- "praying hard" = hoping/wishing → "Tom hands together wishing" (NOT religious scene)
+- "sold" = betrayed/lost hope → "Tom sad disappointed"
+- "doing the right thing" = moral struggle → "Tom conflicted thinking"
+- "fire inside" = passion/anger → "Tom fierce determined" (NOT literal fire)
+- "heart on fire" = love/passion → "Tom love-struck dreamy" (NOT burning)
 
 **SPECIAL RULE FOR INTERJECTIONS/ONOMATOPOEIA:**
 Some lyrics contain interjections or sound effects. Handle them intelligently:
@@ -170,11 +220,18 @@ Some lyrics contain interjections or sound effects. Handle them intelligently:
 "嘿嘿嘿" → "Tom sneaking mischievous"
 "Roar!" → "Tom roaring fierce"
 "Meow~" → "Tom meowing cute"
+"Counting stars" → "Tom Jerry looking up night sky dreamy"
+"Losing sleep" → "Tom restless worried"
+"Praying hard" → "Tom wishing hoping"
+"Dreaming about" → "Tom daydreaming happy"
 
 **BAD Examples (NEVER output like this):**
 "I can smell your scent" → ❌ "perfume bottles on table"
 "The beast inside" → ❌ "dark stage scene"
 "Yeah yeah" → ❌ "yeah yeah" (never repeat the original)
 "啊啊啊" → ❌ "啊啊啊" (never repeat the original)
+"Counting stars" → ❌ "counting money coins" (literal interpretation!)
+"Losing sleep" → ❌ "sleeping bed" (too literal!)
+"Keep out" → ❌ "keep out sign fence" (object, no character!)
 
 Lyrics to convert:"""

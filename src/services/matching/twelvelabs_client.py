@@ -48,6 +48,10 @@ class TwelveLabsClient:
         self._confidence_threshold = self._settings.tl_confidence_threshold
 
         self._current_base_url: str | None = None
+
+        # 视频时长缓存（用于片尾过滤）
+        self._video_duration_cache: dict[str, int] = {}
+
         if self._live_enabled:
             self._advance_client()
 
@@ -175,10 +179,56 @@ class TwelveLabsClient:
         start_ms = int(start_seconds * 1000)
         return start_ms < intro_skip_ms
 
+    def _is_in_outro_zone(self, end_seconds: float, video_id: str) -> bool:
+        """检查片段是否在片尾区域（应被过滤）"""
+        outro_skip_ms = self._settings.video_outro_skip_ms
+        if outro_skip_ms <= 0:
+            return False
+
+        # 获取视频总时长
+        video_duration_ms = self._get_video_duration_ms(video_id)
+        if video_duration_ms <= 0:
+            return False  # 无法获取时长，不过滤
+
+        end_ms = int(end_seconds * 1000)
+        outro_start_ms = video_duration_ms - outro_skip_ms
+
+        return end_ms > outro_start_ms
+
+    def _get_video_duration_ms(self, video_id: str) -> int:
+        """获取视频时长（毫秒），带缓存"""
+        if video_id in self._video_duration_cache:
+            return self._video_duration_cache[video_id]
+
+        if not self._live_enabled or not self._client:
+            return 0
+
+        try:
+            client = cast(Any, self._client)
+            video = client.index.video.retrieve(self._index_id, video_id)
+            duration_seconds = getattr(video, "duration", 0) or 0
+            duration_ms = int(float(duration_seconds) * 1000)
+            self._video_duration_cache[video_id] = duration_ms
+            logger.debug(
+                "twelvelabs.video_duration_cached",
+                video_id=video_id,
+                duration_ms=duration_ms,
+            )
+            return duration_ms
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "twelvelabs.video_duration_failed",
+                video_id=video_id,
+                error=str(exc),
+            )
+            self._video_duration_cache[video_id] = 0  # 缓存失败结果避免重复请求
+            return 0
+
     def _convert_results(self, items: Iterable[Any], limit: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         seen_videos: set[str] = set()  # 追踪已使用的 video_id，避免重复
         intro_filtered_count = 0
+        outro_filtered_count = 0
 
         for item in items:
             try:
@@ -216,6 +266,23 @@ class TwelveLabsClient:
                     # 过滤片头区域
                     if self._is_in_intro_zone(start):
                         intro_filtered_count += 1
+                        logger.debug(
+                            "twelvelabs.intro_zone_filtered",
+                            video_id=video_id,
+                            start=start,
+                            intro_skip_ms=self._settings.video_intro_skip_ms,
+                        )
+                        continue
+
+                    # 过滤片尾区域
+                    if video_id and self._is_in_outro_zone(end, video_id):
+                        outro_filtered_count += 1
+                        logger.debug(
+                            "twelvelabs.outro_zone_filtered",
+                            video_id=video_id,
+                            end=end,
+                            outro_skip_ms=self._settings.video_outro_skip_ms,
+                        )
                         continue
 
                     # 跳过已使用过的视频
@@ -239,11 +306,13 @@ class TwelveLabsClient:
                     seen_videos.add(video_id)
 
                     if len(results) >= limit:
-                        if intro_filtered_count > 0:
+                        if intro_filtered_count > 0 or outro_filtered_count > 0:
                             logger.debug(
-                                "twelvelabs.intro_filtered",
-                                count=intro_filtered_count,
+                                "twelvelabs.intro_outro_filtered",
+                                intro_count=intro_filtered_count,
+                                outro_count=outro_filtered_count,
                                 intro_skip_ms=self._settings.video_intro_skip_ms,
+                                outro_skip_ms=self._settings.video_outro_skip_ms,
                             )
                         return results
             else:
@@ -266,6 +335,23 @@ class TwelveLabsClient:
                 # 过滤片头区域
                 if self._is_in_intro_zone(start):
                     intro_filtered_count += 1
+                    logger.debug(
+                        "twelvelabs.intro_zone_filtered",
+                        video_id=video_id,
+                        start=start,
+                        intro_skip_ms=self._settings.video_intro_skip_ms,
+                    )
+                    continue
+
+                # 过滤片尾区域
+                if video_id and self._is_in_outro_zone(end, video_id):
+                    outro_filtered_count += 1
+                    logger.debug(
+                        "twelvelabs.outro_zone_filtered",
+                        video_id=video_id,
+                        end=end,
+                        outro_skip_ms=self._settings.video_outro_skip_ms,
+                    )
                     continue
 
                 # 跳过已使用过的视频
@@ -291,11 +377,14 @@ class TwelveLabsClient:
             if len(results) >= limit:
                 break
 
-        if intro_filtered_count > 0:
-            logger.debug(
-                "twelvelabs.intro_filtered",
-                count=intro_filtered_count,
+        if intro_filtered_count > 0 or outro_filtered_count > 0:
+            logger.info(
+                "twelvelabs.intro_outro_filtered",
+                intro_count=intro_filtered_count,
+                outro_count=outro_filtered_count,
                 intro_skip_ms=self._settings.video_intro_skip_ms,
+                outro_skip_ms=self._settings.video_outro_skip_ms,
+                message="片头/片尾过滤完成",
             )
 
         return results
