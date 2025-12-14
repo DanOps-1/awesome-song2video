@@ -59,15 +59,15 @@ nohup .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > l
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
 
-# 等待后端启动（reload 模式启动较慢，需要加载模型）
-echo "等待后端启动..."
-for i in {1..30}; do
+# 等待后端启动（reload 模式启动较慢，需要加载模型，约需 45 秒）
+echo "等待后端启动（首次启动较慢，请耐心等待）..."
+for i in {1..60}; do
     if ss -tlnp 2>/dev/null | grep -q ":8000 "; then
         echo "✓ 后端启动成功 (${i}秒)"
         break
     fi
     sleep 1
-    if [ $i -eq 30 ]; then
+    if [ $i -eq 60 ]; then
         echo "✗ 后端启动超时，请检查 logs/backend.log"
         exit 1
     fi
