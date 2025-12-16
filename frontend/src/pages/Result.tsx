@@ -1,31 +1,31 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Loader2, CheckCircle, Download, Home } from 'lucide-react'
 import { getRenderStatus } from '@/api/mix'
 import { useState, useEffect } from 'react'
+import { Button, Progress, Typography, Spin, Tooltip } from 'antd'
+import { DownloadOutlined, HomeOutlined, RedoOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { motion } from 'framer-motion'
+import confetti from 'canvas-confetti'
 
-export default function Result() {
+const { Title, Paragraph, Text } = Typography
+
+export default function ResultPage() {
   const { mixId } = useParams<{ mixId: string }>()
   const [jobId, setJobId] = useState<string | null>(null)
+  const [hasCelebrated, setHasCelebrated] = useState(false)
 
-  // 首先获取 job_id
   useEffect(() => {
     const storedJobId = sessionStorage.getItem(`job_${mixId}`)
-    if (storedJobId) {
-      setJobId(storedJobId)
-    }
+    if (storedJobId) setJobId(storedJobId)
   }, [mixId])
 
-  const { data: renderData, isLoading } = useQuery({
+  const { data: renderData } = useQuery({
     queryKey: ['render-status', mixId, jobId],
     queryFn: () => getRenderStatus(mixId!, jobId!),
     enabled: !!mixId && !!jobId,
     refetchInterval: (query) => {
-      const data = query.state.data
-      if (data?.status === 'success' || data?.status === 'failed') {
-        return false
-      }
-      return 2000  // 每2秒刷新一次以获取最新进度
+      const status = query.state.data?.status
+      return (status === 'success' || status === 'failed') ? false : 2000
     },
   })
 
@@ -33,118 +33,128 @@ export default function Result() {
   const isFailed = renderData?.status === 'failed'
   const isProcessing = !isComplete && !isFailed
 
+  useEffect(() => {
+    if (isComplete && !hasCelebrated) {
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ['#8b5cf6', '#d946ef', '#06b6d4']
+      })
+      setHasCelebrated(true)
+    }
+  }, [isComplete, hasCelebrated])
+
+  const getProgressText = () => {
+    const p = renderData?.progress ?? 0
+    if (p < 5) return '正在初始化渲染引擎...'
+    if (p < 50) return '正在下载高清视频素材...'
+    if (p < 70) return '正在进行智能剪辑与拼接...'
+    if (p < 85) return '正在合成音频与背景音乐...'
+    if (p < 95) return '正在烧录动态字幕...'
+    return '即将完成，请稍候...'
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-8">
-      <div className="max-w-md w-full">
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+    <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ duration: 0.5 }}
+        className="w-full max-w-2xl"
+      >
+        <div className="glass rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-2xl shadow-violet-500/10">
+          
           {isProcessing && (
-            <>
-              <Loader2 className="w-16 h-16 text-purple-600 animate-spin mx-auto mb-6" />
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">视频生成中</h1>
-              <p className="text-gray-500 mb-4">
-                正在渲染您的混剪视频，请稍候...
-              </p>
-              <div className="mb-2">
-                <span className="text-2xl font-bold text-purple-600">
-                  {(renderData?.progress ?? 0).toFixed(0)}%
-                </span>
+            <div className="py-12">
+              <div className="relative w-32 h-32 mx-auto mb-8">
+                <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+                <div className="absolute inset-0 rounded-full border-t-4 border-violet-500 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-2xl font-bold text-white">{Math.round(renderData?.progress ?? 0)}%</span>
+                </div>
               </div>
-              <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
-                <div
-                  className="bg-gradient-to-r from-purple-600 to-indigo-600 h-full transition-all duration-500 ease-out"
-                  style={{ width: `${renderData?.progress ?? 0}%` }}
+              
+              <Title level={2} style={{ color: 'white' }}>视频生成中</Title>
+              <Text className="text-white/50 block mb-8 text-lg">{getProgressText()}</Text>
+              
+              <div className="w-full max-w-md mx-auto h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <motion.div 
+                  className="h-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500"
+                  animate={{ width: `${renderData?.progress ?? 0}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-400 mt-2">
-                {(() => {
-                  const progress = renderData?.progress ?? 0
-                  if (progress < 5) return '准备中...'
-                  if (progress < 50) return `正在下载视频片段... (${Math.round((progress - 5) / 45 * 100)}%)`
-                  if (progress < 70) return '正在合并视频...'
-                  if (progress < 85) return '正在添加音频...'
-                  if (progress < 95) return '正在烧录字幕...'
-                  return '即将完成...'
-                })()}
-              </p>
-            </>
+            </div>
           )}
 
           {isComplete && (
-            <>
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <CheckCircle className="w-10 h-10 text-green-600" />
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6 text-green-400 border border-green-500/30">
+                <DownloadOutlined style={{ fontSize: 32 }} />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">生成完成</h1>
-              <p className="text-gray-500 mb-4">
-                您的混剪视频已生成成功！
-              </p>
+              
+              <Title level={2} style={{ color: 'white' }}>创作完成！</Title>
+              <Paragraph className="text-white/60 text-lg mb-8">
+                您的 AI 音乐视频已生成，快来看看效果吧
+              </Paragraph>
 
-              {/* 视频预览 */}
               {renderData?.output_url && (
-                <div className="mb-6 rounded-xl overflow-hidden bg-black">
+                <div className="rounded-2xl overflow-hidden bg-black aspect-video mb-8 shadow-2xl border border-white/10 group relative">
                   <video
                     src={renderData.output_url}
                     controls
-                    className="w-full max-h-[300px]"
+                    className="w-full h-full object-contain"
                     playsInline
-                  >
-                    您的浏览器不支持视频播放
-                  </video>
+                  />
                 </div>
               )}
 
-              <div className="space-y-3">
-                <a
-                  href={renderData?.output_url || '#'}
-                  download={`mix_${mixId}.mp4`}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-purple-700 hover:to-indigo-700"
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button 
+                  type="primary" 
+                  size="large" 
+                  icon={<DownloadOutlined />} 
+                  href={renderData?.output_url} 
+                  target="_blank" 
+                  download
+                  className="bg-gradient-to-r from-violet-600 to-fuchsia-600 border-none h-12 px-8"
                 >
-                  <Download className="w-5 h-5" />
-                  下载视频
-                </a>
-                <Link
-                  to="/"
-                  className="w-full flex items-center justify-center gap-2 border border-gray-300 py-3 rounded-xl font-semibold hover:bg-gray-50"
-                >
-                  <Home className="w-5 h-5" />
-                  返回首页
+                  下载高清视频
+                </Button>
+                <Link to="/">
+                  <Button size="large" icon={<HomeOutlined />} className="h-12 px-8" ghost>
+                    返回首页
+                  </Button>
                 </Link>
               </div>
-            </>
+            </motion.div>
           )}
 
           {isFailed && (
-            <>
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <span className="text-3xl">!</span>
+            <div className="py-8">
+              <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6 text-red-400 border border-red-500/30">
+                <ExclamationCircleOutlined style={{ fontSize: 32 }} />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">生成失败</h1>
-              <p className="text-gray-500 mb-6">
-                视频生成过程中出现错误，请重试。
-              </p>
-              <Link
-                to={`/status/${mixId}`}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 rounded-xl font-semibold hover:from-purple-700 hover:to-indigo-700"
-              >
-                <ArrowLeft className="w-5 h-5" />
-                返回重试
-              </Link>
-            </>
-          )}
-
-          {!jobId && !isLoading && (
-            <div>
-              <p className="text-gray-500 mb-6">正在获取任务状态...</p>
-              <Link
-                to="/"
-                className="text-purple-600 hover:text-purple-700"
-              >
-                返回首页
-              </Link>
+              <Title level={3} style={{ color: 'white' }}>生成失败</Title>
+              <Paragraph className="text-white/60 mb-8">抱歉，渲染过程中出现了未知错误</Paragraph>
+              
+              <div className="flex gap-4 justify-center">
+                 <Link to={`/status/${mixId}`}>
+                   <Button type="primary" danger size="large" icon={<RedoOutlined />}>重试</Button>
+                 </Link>
+                 <Link to="/">
+                   <Button size="large">返回首页</Button>
+                 </Link>
+              </div>
             </div>
           )}
+
+          {!jobId && !isProcessing && !isComplete && !isFailed && (
+            <Spin tip="正在查询任务..." size="large" className="py-20" />
+          )}
+
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }
