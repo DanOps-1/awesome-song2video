@@ -1,6 +1,9 @@
-# 功能演示：并行裁剪 + 占位回退
+# 功能演示指南
 
-本文档用于现场演示 `001-async-render` 的全部交付：clip 级并行裁剪、渲染配置热加载、占位片段回退与可观测指标。所有命令均在项目根目录执行，并假设 `.venv` 已安装 `.[dev]` 依赖。
+**版本**: v2.0
+**最后更新**: 2025-12-16
+
+本文档包含系统主要功能的演示步骤，涵盖歌词获取、节拍分析、视频匹配、渲染等核心流程。所有命令均在项目根目录执行，假设 `.venv` 已安装 `.[dev]` 依赖。
 
 ## 0. 场景准备
 
@@ -134,14 +137,154 @@ arq src.workers.render_worker.WorkerSettings &
 
 ---
 
+---
+
+## Demo 4：歌词获取演示
+
+**目标**：演示多源歌词获取功能，包括 QQ 音乐、网易云、酷狗、LRCLIB 的自动降级。
+
+### 步骤
+1. 命令行测试歌词获取：
+   ```bash
+   python -m src.lyrics.fetcher "夜曲" "周杰伦"
+   ```
+2. 预期输出：
+   ```text
+   [INFO] 尝试从 QQ Music 获取歌词...
+   [INFO] 成功获取歌词，来源: qq_music
+   [INFO] 歌词行数: 42
+   ```
+3. API 调用测试：
+   ```bash
+   # 创建 mix
+   curl -X POST http://localhost:8000/api/v1/mixes \
+     -H "Content-Type: application/json" \
+     -d '{"song_title": "夜曲", "artist": "周杰伦", "audio_asset_id": "test.mp3"}'
+
+   # 获取歌词
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/fetch-lyrics
+   ```
+4. 查看歌词行：
+   ```bash
+   curl http://localhost:8000/api/v1/mixes/{mix_id}/lines | jq '.lines | length'
+   ```
+
+### 通过标准
+- 歌词成功获取且包含时间戳
+- 支持中文、日文、英文歌曲
+- 自动降级到下一个平台（如 QQ 失败则尝试网易云）
+
+---
+
+## Demo 5：节拍分析与同步
+
+**目标**：演示音频节拍检测和视频片段节拍对齐功能。
+
+### 步骤
+1. 创建 mix 并上传音频后，触发节拍分析：
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/analyze-beats
+   ```
+2. 查看节拍分析结果：
+   ```bash
+   curl http://localhost:8000/api/v1/mixes/{mix_id}/beats | jq
+   ```
+   预期输出：
+   ```json
+   {
+     "bpm": 120.5,
+     "beat_times": [0.5, 1.0, 1.5, ...],
+     "downbeats": [0.5, 2.5, 4.5, ...],
+     "tempo_stability": 0.95
+   }
+   ```
+3. 开启节拍同步：
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/beat-sync \
+     -H "Content-Type: application/json" \
+     -d '{"enabled": true}'
+   ```
+4. 配置节拍同步模式（onset=鼓点对齐，action=动作点对齐）：
+   ```bash
+   # 在 .env 中设置
+   BEAT_SYNC_MODE=onset
+   BEAT_SYNC_MAX_ADJUSTMENT_MS=500
+   ```
+
+### 通过标准
+- BPM 检测准确（误差 < 5%）
+- 节拍时间点与音频节奏一致
+- 渲染后视频切换与节拍同步
+
+---
+
+## Demo 6：端到端完整流程
+
+**目标**：演示从上传音频到渲染完成的完整流程。
+
+### 步骤
+1. 创建混剪任务：
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/mixes \
+     -H "Content-Type: application/json" \
+     -d '{
+       "song_title": "测试歌曲",
+       "artist": "测试歌手",
+       "audio_asset_id": "media/uploads/test.mp3"
+     }'
+   ```
+2. 获取歌词（选择一种方式）：
+   ```bash
+   # 方式 A: 在线获取
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/fetch-lyrics
+
+   # 方式 B: Whisper 识别
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/transcribe
+
+   # 方式 C: 手动导入
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/import-lyrics \
+     -H "Content-Type: application/json" \
+     -d '{"lyrics_text": "[00:00.00]第一句歌词\n[00:05.00]第二句歌词"}'
+   ```
+3. 等待视频匹配完成：
+   ```bash
+   # 查看任务状态
+   curl http://localhost:8000/api/v1/mixes/{mix_id} | jq '.timeline_status'
+   ```
+4. 预览匹配结果：
+   ```bash
+   curl http://localhost:8000/api/v1/mixes/{mix_id}/preview | jq
+   ```
+5. 提交渲染：
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/render \
+     -H "Content-Type: application/json" \
+     -d '{"resolution": "1080p", "aspect_ratio": "16:9"}'
+   ```
+6. 查看渲染进度：
+   ```bash
+   curl http://localhost:8000/api/v1/mixes/{mix_id} | jq '.render_status'
+   ```
+
+### 通过标准
+- 全流程无手动干预完成
+- 渲染视频与音频同步
+- 字幕正确显示
+
+---
+
 ## Demo 附录：命令速查
 
 | 目的 | 命令 |
 | --- | --- |
+| 启动所有服务 | `bash start.sh` |
+| 测试歌词获取 | `python -m src.lyrics.fetcher "歌名" "歌手"` |
 | 并行渲染回归 | `pytest tests/integration/render/test_parallel_clip_pipeline.py` |
 | 占位回退回归 | `pytest tests/integration/render/test_render_fallbacks.py` |
 | 渲染配置契约 | `pytest tests/contract/api/test_render_config.py` |
 | 生成占位素材 | `python scripts/media/create_placeholder_clip.py` |
 | 触发热加载 | `redis-cli publish render:config '{"max_parallelism":6,...}'` |
+| 端到端测试 | `python scripts/dev/e2e_full_render_test.py` |
+| 代码检查 | `ruff check src tests && mypy src` |
 
 > **提示**：所有指标面板位于 `docs/observability/render_dashboard.md`，包含 `render_clip_inflight`、`render_clip_placeholder_total`、`render_clip_failures_total`、`render_clip_duration_ms` 的 Grafana 图表说明。

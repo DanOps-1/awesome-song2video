@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from src.infra.persistence.repositories.render_job_repository import RenderJobRepository
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
-from src.services.timeline_editor import TimelineEditor
+from src.pipelines.editing.timeline_editor import TimelineEditor
 
 
 router = APIRouter(prefix="/tasks", tags=["admin-tasks"])

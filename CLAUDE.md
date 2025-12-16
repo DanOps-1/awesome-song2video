@@ -21,8 +21,8 @@ python -m src.workers.render_worker    # Video rendering worker
 python -m src.workers.timeline_worker  # Timeline generation worker
 
 # Start frontends
-cd frontend && npm run dev -- --port 6008  # User frontend
-cd web && npm run dev -- --port 6006       # Admin dashboard
+cd apps/frontend && npm run dev -- --port 6008  # User frontend
+cd apps/web && npm run dev -- --port 6006       # Admin dashboard
 ```
 
 ### Testing

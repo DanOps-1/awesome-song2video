@@ -1,7 +1,8 @@
 # 歌词混剪系统架构文档
 
-**日期**: 2025-11-13
+**日期**: 2025-12-16
 **项目**: 歌词语义混剪 API
+**版本**: v2.0
 
 ---
 
@@ -14,276 +15,251 @@
 └────────┬────────┘
          │
          ├─── API Routes (REST)
-         │    ├── /api/v1/mixes                (创建/查询 mix)
-         │    ├── /api/v1/mixes/{id}/lines     (歌词行管理)
-         │    ├── /api/v1/mixes/{id}/preview   (预览)
-         │    └── /api/v1/mixes/{id}/render    (渲染)
+         │    ├── /api/v1/mixes                     (创建/查询 mix)
+         │    ├── /api/v1/mixes/{id}/fetch-lyrics   (在线歌词获取)
+         │    ├── /api/v1/mixes/{id}/transcribe     (Whisper 识别)
+         │    ├── /api/v1/mixes/{id}/import-lyrics  (手动导入歌词)
+         │    ├── /api/v1/mixes/{id}/lines          (歌词行管理)
+         │    ├── /api/v1/mixes/{id}/preview        (预览)
+         │    ├── /api/v1/mixes/{id}/render         (渲染)
+         │    ├── /api/v1/mixes/{id}/analyze-beats  (节拍分析)
+         │    ├── /api/v1/mixes/{id}/beats          (获取节拍数据)
+         │    ├── /api/v1/mixes/{id}/beat-sync      (开关节拍同步)
+         │    ├── /api/v1/render/config             (渲染配置热加载)
+         │    └── /api/v1/admin/*                   (管理后台)
          │
-         ├─── Background Workers (Arq)
-         │    ├── timeline_worker    (生成歌词时间线)
-         │    └── render_worker      (渲染视频)
+         ├─── Background Workers (ARQ)
+         │    ├── timeline_worker    (歌词时间线生成)
+         │    └── render_worker      (视频渲染)
          │
          └─── External Services
               ├── TwelveLabs API    (视频搜索)
+              ├── DeepSeek API      (查询改写)
               ├── PostgreSQL/SQLite (数据存储)
-              └── Redis             (任务队列)
+              └── Redis             (任务队列 + 配置热加载)
+```
+
+---
+
+## 核心模块
+
+### 1. 歌词获取 (src/lyrics/)
+
+**LyricsFetcher** - 多源歌词获取器
+
+```python
+# 支持多平台自动降级
+sources = [
+    "QQ Music",       # 覆盖最全（包括周杰伦）
+    "NetEase Music",  # 网易云
+    "Kugou Music",    # 酷狗
+    "LRCLIB",         # 国际歌曲
+]
+```
+
+**关键文件**:
+- `src/lyrics/fetcher.py` - 主入口
+- `src/lyrics/sources/` - 各平台适配器
+
+### 2. 时间线构建 (src/pipelines/matching/)
+
+**TimelineBuilder** - 视频匹配核心
+
+```
+歌词文本 → Whisper 转录 → 分句处理 → TwelveLabs 搜索 → 候选排序 → 去重优化
+```
+
+**关键文件**:
+- `src/pipelines/matching/timeline_builder.py` - 主逻辑
+- `src/services/matching/twelvelabs_client.py` - TwelveLabs API 封装
+- `src/services/matching/query_rewriter.py` - DeepSeek 查询改写
+
+### 3. 时间线编辑 (src/pipelines/editing/)
+
+**TimelineEditor** - 歌词行编辑器
+
+```python
+# 支持操作
+- list_lines()           # 列出所有歌词行
+- get_line()             # 获取单行详情
+- lock_line()            # 锁定选中片段
+- rerun_search()         # 重新搜索候选
+```
+
+**关键文件**:
+- `src/pipelines/editing/timeline_editor.py` - 编辑器实现
+
+### 4. 节拍分析 (src/audio/)
+
+**BeatDetector** - 音频节拍检测
+
+```python
+# 使用 librosa 进行节拍分析
+result = {
+    "bpm": 120.5,
+    "beat_times": [0.5, 1.0, 1.5, ...],  # 节拍时间点
+    "downbeats": [0.5, 2.5, 4.5, ...],    # 重拍时间点
+    "tempo_stability": 0.95,              # 速度稳定性
+}
+```
+
+**OnsetDetector** - 鼓点检测（类似剪映）
+
+```python
+# 检测音频中的打击乐 onset
+onset_times = [0.1, 0.6, 1.1, ...]  # 鼓点时间
+```
+
+**BeatAligner** - 视频片段与节拍对齐
+
+```python
+# 两种对齐模式
+BEAT_SYNC_MODE=onset   # 鼓点对齐（默认，类似剪映）
+BEAT_SYNC_MODE=action  # 视觉动作点对齐
+```
+
+**关键文件**:
+- `src/audio/beat_detector.py` - 节拍检测
+- `src/audio/onset_detector.py` - 鼓点检测
+- `src/services/matching/beat_aligner.py` - 对齐服务
+
+### 5. 视频检索 (src/retrieval/)
+
+**工厂模式支持多种检索器**:
+
+```python
+from src.retrieval import create_retriever
+
+# 当前实现
+retriever = create_retriever("twelvelabs")  # TwelveLabs API (默认)
+retriever = create_retriever("clip")        # CLIP 本地检索 (备用)
+retriever = create_retriever("vlm")         # VLM 检索 (备用)
+```
+
+**关键文件**:
+- `src/retrieval/protocol.py` - 检索协议定义
+- `src/retrieval/factory.py` - 检索器工厂
+- `src/retrieval/twelvelabs/retriever.py` - TwelveLabs 实现
+
+### 6. 视频渲染 (src/workers/)
+
+**RenderWorker** - 并行视频渲染
+
+```
+候选片段 → 并行下载裁剪 → 拼接 → 合成音轨 → 字幕烧录 → 输出
+```
+
+**特性**:
+- 并行裁剪（默认 4 并发）
+- 配置热加载（Redis Pub/Sub）
+- 占位片段回退
+- 视频比例控制
+
+**关键文件**:
+- `src/workers/render_worker.py` - 渲染 Worker
+- `src/workers/timeline_worker.py` - 时间线 Worker
+
+### 7. 管理后台 (src/api/v1/routes/admin/)
+
+**Admin API**:
+- `/api/v1/admin/tasks` - 任务管理
+- `/api/v1/admin/logs` - 日志查看器
+- `/api/v1/admin/status` - 系统状态
+
+**日志流 API**:
+```python
+# 查询日志
+GET /api/v1/admin/logs?level=ERROR&limit=100
+
+# 流式日志（SSE）
+GET /api/v1/admin/logs/stream
+
+# 日志文件列表
+GET /api/v1/admin/logs/files
 ```
 
 ---
 
 ## TwelveLabs SDK 调用流程
 
-### 1️⃣ 入口：FastAPI App
+### 1. 自动生成时间线
 
-**文件**: `src/api/main.py`
-
-```python
-app = FastAPI(title="歌词语义混剪 API")
-app.include_router(mixes.router)        # 创建 mix
-app.include_router(mix_lines.router)    # 管理歌词行
-app.include_router(preview.router)      # 预览
-app.include_router(render.router)       # 渲染
+```
+POST /api/v1/mixes → create_mix()
+                        │
+                        ├── 推送任务到 Redis
+                        │
+                        ▼
+              timeline_worker.build_timeline()
+                        │
+                        ├── Whisper 转录（如需）
+                        │
+                        ├── 歌词分句
+                        │
+                        └── 为每句搜索视频
+                                │
+                                ├── TwelveLabsClient.search_segments()
+                                │
+                                └── 分数低于阈值? → QueryRewriter.rewrite()
 ```
 
-**启动命令**:
-```bash
-uvicorn src.api.main:app --reload
+### 2. 手动重新搜索
+
 ```
-
----
-
-### 2️⃣ 调用路径 A：自动生成时间线
-
-#### 用户请求
+POST /api/v1/mixes/{id}/lines/{line_id}/search
+                        │
+                        ▼
+              TimelineEditor.rerun_search()
+                        │
+                        └── TwelveLabsClient.search_segments()
 ```
-POST /api/v1/mixes
-{
-  "song_title": "测试歌曲",
-  "lyrics_text": "东临碣石，以观沧海...",
-  "audio_asset_id": "audio.mp3"
-}
-```
-
-#### 后端处理流程
-
-**Step 1**: API 接收请求 (`src/api/v1/routes/mixes.py`)
-```python
-@router.post("")
-async def create_mix(body: CreateMixRequest):
-    mix = SongMixRequest(...)
-    await repo.create_request(mix)
-
-    # 提交到后台任务队列
-    await queue.enqueue_job("build_timeline", mix.id)
-    return mix
-```
-
-**Step 2**: Timeline Worker 处理 (`src/workers/timeline_worker.py`)
-```python
-async def build_timeline(ctx, mix_id: str):
-    mix = await repo.get_request(mix_id)
-
-    # 调用 TimelineBuilder
-    result = await builder.build(
-        audio_path=audio_path,
-        lyrics_text=mix.lyrics_text
-    )
-
-    # 保存歌词行和候选片段
-    await repo.bulk_insert_lines(lines)
-    await repo.attach_candidates(candidates)
-    await repo.update_timeline_status(mix_id, "generated")
-```
-
-**Step 3**: TimelineBuilder 调用搜索 (`src/pipelines/matching/timeline_builder.py`)
-```python
-class TimelineBuilder:
-    async def build(self, audio_path, lyrics_text):
-        # 解析歌词，提取时间轴
-        lines = self._parse_lyrics(lyrics_text)
-
-        # 为每行歌词搜索视频片段
-        for line in lines:
-            # ⭐ 这里调用 TwelveLabs
-            candidates = await client.search_segments(
-                line.text,
-                limit=5
-            )
-            line.candidates = candidates
-
-        return result
-```
-
-**Step 4**: TwelveLabsClient 执行搜索 (`src/services/matching/twelvelabs_client.py`)
-```python
-class TwelveLabsClient:
-    async def search_segments(self, query: str, limit: int = 5):
-        # ⭐⭐⭐ 真正调用 TwelveLabs SDK 的地方！
-        option_chain = (
-            [["visual", "audio"], ["audio"], ["visual"]]
-            if self._audio_enabled
-            else [["visual"]]  # 默认仅视觉匹配
-        )
-        # 实际实现中会按 option_chain 轮询
-        pager = self._client.search.query(
-            index_id=self._index_id,
-            query_text=query,
-            search_options=option_chain[0],
-            group_by="clip",
-            page_limit=max(limit, 10),
-        )
-
-        # 转换为标准格式
-        return self._convert_results(pager, limit)
-```
-
----
-
-### 3️⃣ 调用路径 B：手动重新搜索
-
-#### 用户请求
-```
-POST /api/v1/mixes/{mix_id}/lines/{line_id}/search
-{
-  "prompt_override": "森林树木"
-}
-```
-
-#### 后端处理流程
-
-**Step 1**: API 接收请求 (`src/api/v1/routes/mix_lines.py`)
-```python
-@router.post("/{line_id}/search")
-async def search_new_segments(mix_id, line_id, body):
-    # 调用 TimelineEditor
-    candidates = await editor.rerun_search(
-        line_id,
-        prompt_override=body.prompt_override
-    )
-    return {"candidates": candidates}
-```
-
-**Step 2**: TimelineEditor 调用搜索 (`src/services/timeline_editor.py`)
-```python
-class TimelineEditor:
-    async def rerun_search(self, line_id, prompt_override=None):
-        line = await timeline_repo.get_line(line_id)
-        query = prompt_override or line.original_text
-
-        # ⭐ 直接调用 TwelveLabs
-        results = await client.search_segments(query, limit=5)
-
-        # 保存新候选片段
-        await repo.replace_candidates(line_id, candidates)
-        return serialized
-```
-
-**Step 3**: TwelveLabsClient 执行搜索（同上）
 
 ---
 
 ## TwelveLabsClient 详解
 
-### 核心代码位置
-
 **文件**: `src/services/matching/twelvelabs_client.py`
 
-### 关键方法
+### 关键配置
 
-#### 1. `__init__()` - 初始化客户端
-
-```python
-def __init__(self):
-    self._settings = get_settings()
-    self._live_enabled = self._settings.tl_live_enabled  # 控制真实/Mock
-    self._index_id = self._settings.tl_index_id
-    self._client = None
-
-    if self._live_enabled:
-        self._advance_client()  # 初始化 TwelveLabs SDK
-```
-
-**配置来源**: `.env` 文件
 ```bash
-TL_API_KEY=tlk_xxx
-TL_INDEX_ID=6911aaadd68fb776bc1bd8e7
-TL_LIVE_ENABLED=true
-TL_AUDIO_SEARCH_ENABLED=false
+# .env
+TL_API_KEY=tlk_xxx                    # API Key
+TL_INDEX_ID=6911aaadd68fb776bc1bd8e7  # Index ID
+TL_LIVE_ENABLED=true                  # true=真实API, false=Mock
+
+# 搜索模态
+TL_AUDIO_SEARCH_ENABLED=false         # 是否启用音频搜索
 ```
 
-#### 2. `search_segments()` - 搜索视频片段
+### 搜索方法
 
 ```python
 async def search_segments(self, query: str, limit: int = 5):
-    # Mock 模式
+    """
+    搜索视频片段
+
+    - 支持 Mock 模式（开发测试）
+    - 多选项重试策略
+    - 结果标准化
+    """
     if not self._live_enabled:
         return self._mock_results(query, limit)
 
-    # 多选项重试策略（默认仅视觉，配置开启时再加入音频）
-    option_chain = (
-        [["visual", "audio"], ["audio"], ["visual"]]
-        if self._audio_enabled
-        else [["visual"]]
+    # 调用 TwelveLabs SDK
+    pager = self._client.search.query(
+        index_id=self._index_id,
+        query_text=query,
+        search_options=["visual"],
+        group_by="clip",
+        page_limit=limit,
     )
 
-    for options in option_chain:
-        try:
-            # ⭐ 调用 TwelveLabs SDK
-            pager = self._client.search.query(
-                index_id=self._index_id,
-                query_text=query,
-                search_options=options,
-                group_by="clip",
-                page_limit=max(limit, 10),
-            )
-
-            results = self._convert_results(pager, limit)
-            if results:
-                return results  # 找到结果，返回
-        except Exception:
-            # 失败则尝试下一个选项
-            continue
-
-    return []  # 所有选项都失败
+    return self._convert_results(pager, limit)
 ```
 
-#### 3. `_convert_results()` - 转换结果格式
+### 返回格式
 
-```python
-def _convert_results(self, items, limit):
-    results = []
-    for item in items:
-        clips = getattr(item, "clips", None) or []
-
-        if clips:
-            # 有 clips，遍历每个 clip
-            for clip in clips:
-                results.append(
-                    self._build_candidate_dict(
-                        clip.video_id or item.video_id,
-                        clip.start,
-                        clip.end,
-                        clip.score
-                    )
-                )
-        else:
-            # 没有 clips，用 item 本身
-            results.append(
-                self._build_candidate_dict(
-                    item.video_id,
-                    item.start,
-                    item.end,
-                    item.score
-                )
-            )
-
-        if len(results) >= limit:
-            break
-
-    return results
-```
-
-**返回格式**:
 ```python
 [
     {
@@ -291,7 +267,7 @@ def _convert_results(self, items, limit):
         "video_id": "6911acda8bf751b791733149",
         "start": 89333,  # 毫秒
         "end": 96233,
-        "score": 71.07
+        "score": 0.71
     },
     ...
 ]
@@ -301,7 +277,7 @@ def _convert_results(self, items, limit):
 
 ## 渲染流程
 
-### 1️⃣ 用户锁定歌词行
+### 1. 用户锁定歌词行
 
 ```
 PATCH /api/v1/mixes/{mix_id}/lines/{line_id}
@@ -310,38 +286,36 @@ PATCH /api/v1/mixes/{mix_id}/lines/{line_id}
 }
 ```
 
-### 2️⃣ 提交渲染任务
+### 2. 提交渲染任务
 
 ```
 POST /api/v1/mixes/{mix_id}/render
 {
   "resolution": "1080p",
-  "frame_rate": 25
+  "frame_rate": 25,
+  "aspect_ratio": "16:9"  # 支持 16:9, 9:16, 1:1
 }
 ```
 
-### 3️⃣ Render Worker 处理
-
-**文件**: `src/workers/render_worker.py`
+### 3. Render Worker 处理
 
 ```python
 async def render_mix(ctx, job_id: str):
-    job = await repo.get(job_id)
-    mix = await song_repo.get_request(job.mix_request_id)
+    # 1. 获取锁定的歌词行
+    lines = await song_repo.list_locked_lines(mix_request_id)
 
-    # ⭐ 只渲染 status='locked' 的歌词行
-    lines = await song_repo.list_locked_lines(job.mix_request_id)
+    # 2. 并行裁剪视频片段
+    scheduler = RenderClipScheduler(max_parallelism=4)
+    clips = await scheduler.run(tasks)
 
-    # 使用 FFmpeg 渲染
-    render_lines = [_build_render_line(line) for line in lines]
-    # ... FFmpeg 处理 ...
+    # 3. FFmpeg 拼接
+    await ffmpeg_concat(clips, output_path)
 
-    # 保存结果
-    await repo.mark_success(
-        job_id,
-        output_asset_id=output_path,
-        metrics={"render": render_metrics}
-    )
+    # 4. 合成音轨
+    await ffmpeg_merge_audio(output_path, audio_path)
+
+    # 5. 烧录字幕（可选）
+    await ffmpeg_burn_subtitles(output_path, srt_path)
 ```
 
 ---
@@ -353,14 +327,13 @@ async def render_mix(ctx, job_id: str):
 {
     "id": "uuid",
     "song_title": "歌曲名",
-    "lyrics_text": "歌词内容",
+    "artist": "歌手",
+    "source_type": "upload|search",
     "audio_asset_id": "音频路径",
-    "timeline_status": "pending|generating|generated|failed",
+    "language": "zh|en|ja",
+    "timeline_status": "pending|processing|generated|failed",
     "render_status": "idle|queued|rendering|completed|failed",
-    "metrics": {
-        "preview": {...},
-        "render": {...}
-    }
+    "metrics": {...}
 }
 ```
 
@@ -370,7 +343,7 @@ async def render_mix(ctx, job_id: str):
     "id": "uuid",
     "mix_request_id": "mix_uuid",
     "line_no": 1,
-    "original_text": "东临碣石，以观沧海",
+    "original_text": "歌词内容",
     "start_time_ms": 0,
     "end_time_ms": 3000,
     "status": "pending|locked",
@@ -385,10 +358,9 @@ async def render_mix(ctx, job_id: str):
     "id": "uuid",
     "line_id": "line_uuid",
     "source_video_id": "6911acda8bf751b791733149",
-    "index_id": "tl_index_id",
     "start_time_ms": 89333,
     "end_time_ms": 96233,
-    "score": 71.07,
+    "score": 0.71,
     "generated_by": "auto|twelvelabs_api|manual"
 }
 ```
@@ -400,84 +372,20 @@ async def render_mix(ctx, job_id: str):
     "mix_request_id": "mix_uuid",
     "job_status": "queued|running|success|failed",
     "output_asset_id": "path/to/video.mp4",
-    "metrics": {
-        "render": {
-            "line_count": 3,
-            "avg_delta_ms": 500,
-            "queued_at": "2025-11-13T12:00:00Z",
-            "finished_at": "2025-11-13T12:00:05Z"
-        }
-    }
+    "metrics": {"render": {...}}
 }
 ```
 
----
-
-## 运行生产代码
-
-### 方式 1: 启动 API 服务器
-
-```bash
-# 1. 启动 FastAPI
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 2. 启动 Timeline Worker (处理搜索任务)
-arq src.workers.timeline_worker.WorkerSettings
-
-# 3. 启动 Render Worker (处理渲染任务)
-arq src.workers.render_worker.WorkerSettings
-```
-
-### 方式 2: 使用 API 测试
-
-```bash
-# 创建 mix
-curl -X POST http://localhost:8000/api/v1/mixes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "song_title": "测试",
-    "lyrics_text": "树木丛生，百草丰茂",
-    "audio_asset_id": "test.mp3"
-  }'
-
-# 等待 timeline_worker 处理完成
-
-# 查询歌词行和候选片段
-curl http://localhost:8000/api/v1/mixes/{mix_id}/lines
-
-# 锁定歌词行
-curl -X PATCH http://localhost:8000/api/v1/mixes/{mix_id}/lines/{line_id} \
-  -H "Content-Type: application/json" \
-  -d '{"selected_segment_id": "match-id"}'
-
-# 提交渲染
-curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/render
-```
-
-### 方式 3: 直接调用代码 (测试)
-
-创建测试脚本 `test_production_code.py`:
-
+### BeatAnalysisData (节拍分析)
 ```python
-import asyncio
-from src.services.matching.twelvelabs_client import client
-
-async def test():
-    # 直接调用生产代码的搜索
-    results = await client.search_segments("树木丛生", limit=3)
-
-    for i, result in enumerate(results, 1):
-        print(f"结果 {i}:")
-        print(f"  video_id: {result['video_id']}")
-        print(f"  时间: {result['start']}ms - {result['end']}ms")
-        print(f"  得分: {result['score']}")
-
-asyncio.run(test())
-```
-
-运行:
-```bash
-python test_production_code.py
+{
+    "id": "uuid",
+    "mix_request_id": "mix_uuid",
+    "bpm": 120.5,
+    "beat_times": [0.5, 1.0, 1.5, ...],
+    "downbeats": [0.5, 2.5, 4.5, ...],
+    "tempo_stability": 0.95
+}
 ```
 
 ---
@@ -488,12 +396,31 @@ python test_production_code.py
 
 ```bash
 # TwelveLabs 配置
-TL_API_KEY=tlk_xxx                      # API Key
-TL_INDEX_ID=6911aaadd68fb776bc1bd8e7   # Index ID
-TL_LIVE_ENABLED=true                    # true=真实API, false=Mock
+TL_API_KEY=tlk_xxx
+TL_INDEX_ID=6911aaadd68fb776bc1bd8e7
+TL_LIVE_ENABLED=true
+
+# DeepSeek 查询改写
+DEEPSEEK_API_KEY=sk-xxxxx
+QUERY_REWRITE_ENABLED=true
+QUERY_REWRITE_SCORE_THRESHOLD=1.0  # 分数阈值
+QUERY_REWRITE_MAX_ATTEMPTS=3
+
+# Whisper 音频识别
+WHISPER_MODEL_NAME=large-v3
+
+# 节拍同步
+BEAT_SYNC_ENABLED=true
+BEAT_SYNC_MODE=onset  # onset|action
+BEAT_SYNC_MAX_ADJUSTMENT_MS=500
+BEAT_SYNC_ONSET_TOLERANCE_MS=80
+
+# 视频过滤（跳过片头片尾）
+VIDEO_INTRO_SKIP_MS=8000
+VIDEO_OUTRO_SKIP_MS=5000
 
 # 数据库
-DATABASE_URL=sqlite+aiosqlite:///./dev.db
+POSTGRES_DSN=sqlite+aiosqlite:///./data/db/dev.db
 
 # Redis (任务队列)
 REDIS_URL=redis://localhost:6379
@@ -504,80 +431,81 @@ FALLBACK_VIDEO_ID=6911acda8bf751b791733149
 
 ---
 
-## Mock vs 真实 API
+## 运行服务
 
-### Mock 模式 (`TL_LIVE_ENABLED=false`)
+### 方式 1: 启动完整服务
 
-```python
-# 返回假数据，用于本地开发
-def _mock_results(self, query, limit):
-    matches = []
-    for idx in range(limit):
-        start = idx * 2000
-        matches.append({
-            "id": str(uuid4()),
-            "video_id": "fallback_video_id",
-            "start": start,
-            "end": start + 1500,
-            "score": random.uniform(0.6, 0.95),
-        })
-    return matches
+```bash
+# 使用启动脚本
+bash start.sh
+
+# 或手动启动
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload &
+python -m src.workers.timeline_worker &
+python -m src.workers.render_worker &
 ```
 
-### 真实 API 模式 (`TL_LIVE_ENABLED=true`)
+### 方式 2: API 测试
+
+```bash
+# 创建 mix
+curl -X POST http://localhost:8000/api/v1/mixes \
+  -H "Content-Type: application/json" \
+  -d '{
+    "song_title": "测试",
+    "artist": "歌手",
+    "audio_asset_id": "test.mp3"
+  }'
+
+# 获取歌词（在线）
+curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/fetch-lyrics
+
+# 或 Whisper 识别
+curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/transcribe
+
+# 查询歌词行
+curl http://localhost:8000/api/v1/mixes/{mix_id}/lines
+
+# 提交渲染
+curl -X POST http://localhost:8000/api/v1/mixes/{mix_id}/render
+```
+
+### 方式 3: 直接调用代码
 
 ```python
-# 调用真实的 TwelveLabs SDK
-pager = self._client.search.query(
-    index_id=self._index_id,
-    query_text=query,
-    search_options=["visual"],  # 默认仅视觉；设置 TL_AUDIO_SEARCH_ENABLED=true 才会附加 audio
-    group_by="clip",
-    page_limit=10,
-)
+import asyncio
+from src.services.matching.twelvelabs_client import client
+
+async def test():
+    results = await client.search_segments("树木丛生", limit=3)
+    for r in results:
+        print(f"video_id: {r['video_id']}, score: {r['score']}")
+
+asyncio.run(test())
 ```
 
 ---
 
 ## 总结
 
-### ✅ TwelveLabs SDK 调用位置
+### 核心调用链
 
-**唯一入口**: `src/services/matching/twelvelabs_client.py`
-- 方法: `TwelveLabsClient.search_segments()`
-- 行号: 63-69
+1. **歌词获取**: LyricsFetcher → QQ/NetEase/Kugou/LRCLIB
+2. **时间线生成**: TimelineBuilder → TwelveLabsClient → QueryRewriter
+3. **时间线编辑**: TimelineEditor → TwelveLabsClient
+4. **节拍同步**: BeatDetector/OnsetDetector → BeatAligner
+5. **视频渲染**: RenderWorker → FFmpeg
 
-### ✅ 两个调用场景
+### 生产代码特点
 
-1. **自动搜索** (Timeline Worker)
-   - 创建 mix 时自动触发
-   - 为所有歌词行搜索候选片段
-
-2. **手动搜索** (Timeline Editor)
-   - 用户手动触发
-   - 为单个歌词行重新搜索
-
-### ✅ 生产代码特点
-
-- ✅ 支持 Mock 模式，方便开发测试
-- ✅ 默认仅视觉匹配，可配置开启 visual+audio → audio → visual 的重试链路
-- ✅ 优雅降级（有 clips 用 clips，没有用 item）
-- ✅ 速率限制和故障转移
-- ✅ 结构化日志记录
-
-### ✅ 如何运行
-
-```bash
-# 启动完整服务
-uvicorn src.api.main:app --reload &
-arq src.workers.timeline_worker.WorkerSettings &
-arq src.workers.render_worker.WorkerSettings &
-
-# 或直接调用
-python test_production_code.py
-```
+- 支持 Mock 模式，方便开发测试
+- 分数阈值触发智能改写
+- 节拍对齐提升视频节奏感
+- 并行裁剪提升渲染效率
+- 配置热加载无需重启
+- 结构化日志便于排查
 
 ---
 
-**文档生成人**: Claude Code (Sonnet 4.5)
-**最后更新**: 2025-11-13
+**文档生成人**: Claude Code
+**最后更新**: 2025-12-16

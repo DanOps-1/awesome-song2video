@@ -87,19 +87,19 @@ echo "Render Worker PID: $RENDER_PID"
 
 # [4/5] 启动管理后台
 echo "[4/5] 启动管理后台 (端口 6006)..."
-cd web
-nohup npm run dev -- --port 6006 --host 0.0.0.0 > ../logs/admin.log 2>&1 &
+cd apps/web
+nohup npm run dev -- --port 6006 --host 0.0.0.0 > ../../logs/admin.log 2>&1 &
 ADMIN_PID=$!
 echo "管理后台 PID: $ADMIN_PID"
-cd ..
+cd ../..
 
 # [5/5] 启动用户前端
 echo "[5/5] 启动用户前端 (端口 6008)..."
-cd frontend
-nohup npm run dev -- --port 6008 --host 0.0.0.0 > ../logs/frontend.log 2>&1 &
+cd apps/frontend
+nohup npm run dev -- --port 6008 --host 0.0.0.0 > ../../logs/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "用户前端 PID: $FRONTEND_PID"
-cd ..
+cd ../..
 
 # 等待前端启动（Vite 启动较慢，约需 15 秒）
 echo ""

@@ -432,36 +432,28 @@ PATCH 成功会触发 Redis `render:config` 消息，渲染 Worker 会记录 `re
 
 ```
 .
-├── src/
-│   ├── api/              # FastAPI 路由与接口
-│   │   └── v1/routes/admin/  # 管理后台 API
+├── src/                  # 后端源代码
+│   ├── api/              # FastAPI 路由
+│   ├── audio/            # 音频处理 (节拍检测)
 │   ├── domain/           # 领域模型
 │   ├── infra/            # 基础设施层
-│   │   ├── config/       # 配置管理
-│   │   ├── messaging/    # 消息队列
-│   │   ├── observability/# 可观测性
-│   │   ├── persistence/  # 数据持久化
-│   │   └── storage/      # 对象存储
-│   ├── pipelines/        # 数据处理管道
+│   ├── lyrics/           # 歌词获取
+│   ├── pipelines/        # 处理管道
+│   ├── retrieval/        # 视频检索
 │   ├── services/         # 业务服务
 │   └── workers/          # 后台任务
-├── frontend/             # 用户前端 (React + TypeScript)
-│   └── src/
-│       ├── api/          # API 客户端
-│       └── pages/        # 页面组件
-├── web/                  # 管理后台 (React + TypeScript)
-│   └── src/
-│       ├── api/          # API 客户端
-│       ├── components/   # 通用组件
-│       └── pages/        # 页面组件
+├── apps/                 # 前端应用
+│   ├── frontend/         # 用户前端 (React)
+│   └── web/              # 管理后台 (React)
 ├── tests/                # 测试用例
-│   ├── contract/         # 契约测试
-│   ├── integration/      # 集成测试
-│   └── golden/           # 黄金测试
 ├── docs/                 # 文档
-├── specs/                # 功能规格
 ├── scripts/              # 工具脚本
-└── observability/        # 监控配置
+├── deploy/               # 部署配置 (Docker)
+├── requirements/         # Python 依赖
+├── data/                 # 数据目录
+├── media/                # 媒体文件
+├── artifacts/            # 构建产物
+└── logs/                 # 运行日志
 ```
 
 ## 监控与可观测性

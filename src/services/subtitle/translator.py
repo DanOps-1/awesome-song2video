@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-from functools import lru_cache
 
 import structlog
 from langdetect import detect, LangDetectException

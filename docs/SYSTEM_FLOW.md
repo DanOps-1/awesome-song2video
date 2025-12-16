@@ -1,7 +1,7 @@
 # 歌词语义混剪系统 - 完整运行流程
 
-**文档版本**: v1.0
-**最后更新**: 2025-11-20
+**文档版本**: v2.0
+**最后更新**: 2025-12-16
 **审阅状态**: 待审阅
 
 ---
@@ -17,11 +17,17 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FastAPI 服务层                              │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  /api/v1/mixes          - 创建混剪任务                    │   │
-│  │  /api/v1/mixes/{id}/generate-timeline - 生成时间线        │   │
-│  │  /api/v1/mixes/{id}/preview - 查看预览清单               │   │
-│  │  /api/v1/mixes/{id}/render  - 提交渲染任务               │   │
-│  │  /api/v1/render/config      - 渲染配置管理               │   │
+│  │  /api/v1/mixes               - 创建混剪任务               │   │
+│  │  /api/v1/mixes/{id}/fetch-lyrics   - 在线获取歌词        │   │
+│  │  /api/v1/mixes/{id}/transcribe     - Whisper识别         │   │
+│  │  /api/v1/mixes/{id}/import-lyrics  - 手动导入歌词        │   │
+│  │  /api/v1/mixes/{id}/lines          - 歌词行管理          │   │
+│  │  /api/v1/mixes/{id}/preview        - 查看预览清单        │   │
+│  │  /api/v1/mixes/{id}/render         - 提交渲染任务        │   │
+│  │  /api/v1/mixes/{id}/analyze-beats  - 分析节拍            │   │
+│  │  /api/v1/mixes/{id}/beat-sync      - 开关节拍同步        │   │
+│  │  /api/v1/render/config             - 渲染配置热加载      │   │
+│  │  /api/v1/admin/*                   - 管理后台API         │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └────────────────┬────────────────────────────────────────────────┘
                  │
@@ -39,8 +45,9 @@
 └──────┬──────────────────────────────────┬─────────────────────┘
        │                                   │
        ├─► TwelveLabs API (视频搜索)       ├─► FFmpeg (视频裁剪拼接)
-       ├─► DeepSeek API (查询改写)         ├─► MinIO/S3 (存储产物)
-       └─► Whisper (音频转文字)             └─► Prometheus/Loki (监控)
+       ├─► DeepSeek API (查询改写)         ├─► 占位片段回退
+       ├─► Whisper (音频转文字)             ├─► 字幕烧录
+       └─► librosa (节拍/鼓点检测)          └─► Prometheus/Loki (监控)
 ```
 
 ---

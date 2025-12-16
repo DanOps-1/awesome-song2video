@@ -1,228 +1,87 @@
 # 查询改写模式说明
 
-**版本**: v1.0
-**最后更新**: 2025-11-20
+**版本**: v2.0
+**最后更新**: 2025-12-16
 
 ---
 
 ## 概述
 
-系统支持两种查询改写模式，通过 `QUERY_REWRITE_MANDATORY` 配置项控制：
+系统使用 **分数阈值模式** 进行智能查询改写，通过 `QUERY_REWRITE_SCORE_THRESHOLD` 配置项控制：
 
-1. **按需改写模式** (默认): 先用原始歌词查询，无结果时才改写
-2. **强制改写模式**: 第一次查询就改写歌词为视觉描述
-
----
-
-## 模式对比
-
-### 模式 1: 按需改写 (QUERY_REWRITE_MANDATORY=false)
-
-**适用场景**：
-- 歌词本身包含具体视觉描述（如"一个人在街上走"）
-- 需要节省 AI API 调用成本
-- 视频库索引质量较高，歌词文本匹配率高
-
-**执行流程**：
-```
-┌────────────────────────────────────────────────────┐
-│ 1. 原始查询                                         │
-│    query = "我停在回忆"                             │
-│    candidates = search_segments(query, limit=20)   │
-└────────────┬───────────────────────────────────────┘
-             │
-             ├─ 有结果? ──► 使用（成功退出）
-             │
-             └─ 无结果? ──► AI改写
-                            │
-        ┌───────────────────┴───────────────────┐
-        │ 2. DeepSeek 查询改写（最多3次）        │
-        │    attempt=0: 具体化描述               │
-        │      "我停在回忆" → "一个人坐在窗边回忆往事的画面" │
-        │    attempt=1: 通用化场景               │
-        │      → "思念回忆的孤独氛围"             │
-        │    attempt=2: 极简关键词               │
-        │      → "回忆 孤独"                     │
-        └───────────────────┬───────────────────┘
-                            │
-                            ├─ 任一次有结果 ──► 使用
-                            │
-                            └─ 全部无结果 ──► 返回空 (fallback)
-```
-
-**优势**：
-- ✅ 节省 AI 调用成本（只在必要时改写）
-- ✅ 保留原始歌词语义（某些情况下原始歌词就能匹配）
-
-**劣势**：
-- ❌ 抽象歌词匹配率低（如"我停在回忆"）
-- ❌ 多一次 TwelveLabs API 调用（先原始查询，再改写查询）
+- 当原始查询的最高匹配分数低于阈值时，触发 DeepSeek 查询改写
+- 改写后持续循环，直到分数达到阈值或达到最大尝试次数
+- 默认阈值为 `1.0`（严格模式，确保最高质量匹配）
 
 ---
 
-### 模式 2: 强制改写 (QUERY_REWRITE_MANDATORY=true)
+## 分数阈值机制
 
-**适用场景**：
-- 歌词多为抽象、意象化表达（如诗歌、流行歌曲）
-- 追求最高匹配精度
-- AI API 成本可接受
-
-**执行流程**：
-```
-┌────────────────────────────────────────────────────┐
-│ 1. 强制改写（跳过原始查询）                         │
-│    原始 = "我停在回忆"                              │
-│    改写 = AI改写(attempt=0)                         │
-│         = "一个人坐在窗边回忆往事的画面"            │
-│    candidates = search_segments(改写, limit=20)    │
-└────────────┬───────────────────────────────────────┘
-             │
-             ├─ 有结果? ──► 使用（成功退出）
-             │
-             └─ 无结果? ──► 继续改写
-                            │
-        ┌───────────────────┴───────────────────┐
-        │ 2. 继续改写（最多再2次）               │
-        │    attempt=1: 通用化场景               │
-        │      → "思念回忆的孤独氛围"             │
-        │    attempt=2: 极简关键词               │
-        │      → "回忆 孤独"                     │
-        └───────────────────┬───────────────────┘
-                            │
-                            ├─ 任一次有结果 ──► 使用
-                            │
-                            └─ 全部无结果 ──► 返回空 (fallback)
-```
-
-**优势**：
-- ✅ 抽象歌词转视觉描述，匹配精度高
-- ✅ 避免无效的原始查询，节省 TwelveLabs API 配额
-- ✅ 统一走改写流程，逻辑清晰
-
-**劣势**：
-- ❌ 每句歌词都调用 AI（成本增加）
-- ❌ 可能丢失原始歌词的精确语义
-
----
-
-## 配置示例
-
-### 配置 1: 按需改写（默认，推荐）
+### 配置参数
 
 ```bash
 # .env
-QUERY_REWRITE_ENABLED=true
-QUERY_REWRITE_MANDATORY=false   # 默认值
-QUERY_REWRITE_MAX_ATTEMPTS=3
+QUERY_REWRITE_ENABLED=true           # 启用查询改写
+QUERY_REWRITE_SCORE_THRESHOLD=1.0    # 分数阈值 (0.0-1.0)
+QUERY_REWRITE_MAX_ATTEMPTS=3         # 最大改写次数
+DEEPSEEK_API_KEY=sk-xxxxx            # DeepSeek API 密钥
 ```
 
-**日志示例**：
-```json
-// 第一次查询（原始歌词）
-{
-  "event": "timeline_builder.candidates",
-  "text_preview": "我停在回忆",
-  "count": 0  // 无结果
-}
+### 执行流程
 
-// 触发改写
-{
-  "event": "timeline_builder.fallback_to_rewrite",
-  "original": "我停在回忆",
-  "attempt": 1
-}
-
-// 改写成功
-{
-  "event": "timeline_builder.rewrite_success",
-  "original": "我停在回忆",
-  "attempt": 1,
-  "final_query": "一个人坐在窗边回忆往事的画面",
-  "count": 15
-}
+```
+┌────────────────────────────────────────────────────────────────┐
+│ 1. 原始查询 TwelveLabs                                         │
+│    query = "我停在回忆"                                        │
+│    candidates = search_segments(query, limit=20)              │
+│    best_score = max(candidates.scores)                        │
+└────────────────────┬───────────────────────────────────────────┘
+                     │
+                     ├─ best_score >= threshold? ──► 使用原始结果（成功）
+                     │
+                     └─ best_score < threshold? ──► 触发智能改写
+                                │
+        ┌───────────────────────┴───────────────────────────────┐
+        │ 2. DeepSeek 查询改写循环（最多 max_attempts 次）        │
+        │                                                        │
+        │    attempt=0: 具体化视觉描述                           │
+        │      "我停在回忆" → "一个人坐在窗边回忆往事的画面"       │
+        │      → 搜索 → best_score >= threshold? → 退出循环      │
+        │                                                        │
+        │    attempt=1: 场景通用化                               │
+        │      → "思念回忆的孤独氛围"                             │
+        │      → 搜索 → best_score >= threshold? → 退出循环      │
+        │                                                        │
+        │    attempt=2: 极简关键词                               │
+        │      → "回忆 孤独"                                      │
+        │      → 搜索 → 返回最佳结果                              │
+        └───────────────────────────────────────────────────────┘
 ```
 
----
+### 分数阈值含义
 
-### 配置 2: 强制改写（抽象歌词场景）
-
-```bash
-# .env
-QUERY_REWRITE_ENABLED=true
-QUERY_REWRITE_MANDATORY=true    # 启用强制改写
-QUERY_REWRITE_MAX_ATTEMPTS=3
-```
-
-**日志示例**：
-```json
-// 强制改写（跳过原始查询）
-{
-  "event": "timeline_builder.mandatory_rewrite",
-  "original": "我停在回忆",
-  "message": "强制改写模式，跳过原始查询"
-}
-
-// 改写后的查询
-{
-  "event": "timeline_builder.mandatory_rewrite_query",
-  "original": "我停在回忆",
-  "rewritten": "一个人坐在窗边回忆往事的画面"
-}
-
-// 第一次改写就成功
-{
-  "event": "timeline_builder.mandatory_rewrite_success",
-  "original": "我停在回忆",
-  "rewritten": "一个人坐在窗边回忆往事的画面",
-  "count": 15
-}
-```
-
----
-
-## API 调用成本对比
-
-假设一首歌 **50 句歌词**：
-
-### 场景 1: 所有歌词都能原始匹配
-
-| 模式 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
-|------|----------------|---------------|--------|
-| 按需改写 | 50 次 | 0 次 | ⭐ 最低 |
-| 强制改写 | 50 次 | 50 次 | 较高 |
-
-### 场景 2: 所有歌词都需改写（抽象歌词）
-
-| 模式 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
-|------|----------------|---------------|--------|
-| 按需改写 | 100 次 (50原始+50改写) | 50 次 | 较高 |
-| 强制改写 | 50 次 | 50 次 | ⭐ 较低 |
-
-### 场景 3: 50% 歌词需改写
-
-| 模式 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
-|------|----------------|---------------|--------|
-| 按需改写 | 75 次 (50+25) | 25 次 | 中等 |
-| 强制改写 | 50 次 | 50 次 | 中等 |
-
-**结论**：
-- 如果歌词多为**具体描述**，用**按需改写**
-- 如果歌词多为**抽象表达**，用**强制改写**
+| 阈值 | 说明 | 适用场景 |
+|------|------|---------|
+| `1.0` | 严格模式，分数必须达到 100% 才停止改写 | 追求最高匹配精度 |
+| `0.9` | 高质量模式，90% 以上即可 | 平衡精度与效率 |
+| `0.8` | 标准模式 | 一般场景 |
+| `0.7` | 宽松模式 | 快速匹配，允许一定误差 |
+| `0.0` | 禁用改写，直接使用原始查询结果 | 测试/调试 |
 
 ---
 
 ## 改写策略演进
 
-无论哪种模式，改写都采用递进式策略：
+每次改写尝试使用不同的提示词策略：
 
-### Attempt 0: 具体化描述
+### Attempt 0: 具体化视觉描述
 ```
 输入: "我停在回忆"
 输出: "一个人坐在窗边，看着窗外的雨滴，回忆往事的画面"
-特点: 将抽象情感转化为具体视觉场景
+特点: 将抽象情感转化为具体可视化场景
 ```
 
-### Attempt 1: 通用化场景
+### Attempt 1: 场景通用化
 ```
 输入: "我停在回忆"
 输出: "思念、回忆、孤独的氛围"
@@ -238,85 +97,156 @@ QUERY_REWRITE_MAX_ATTEMPTS=3
 
 ---
 
+## 日志示例
+
+### 原始查询分数达标
+```json
+{
+  "event": "timeline_builder.candidates",
+  "text_preview": "一个人在街上走",
+  "count": 15,
+  "best_score": 0.95,
+  "threshold": 0.9,
+  "action": "use_original"
+}
+```
+
+### 触发改写
+```json
+{
+  "event": "timeline_builder.score_below_threshold",
+  "original": "我停在回忆",
+  "best_score": 0.65,
+  "threshold": 0.9,
+  "message": "分数低于阈值，触发查询改写"
+}
+```
+
+### 改写成功
+```json
+{
+  "event": "timeline_builder.rewrite_success",
+  "original": "我停在回忆",
+  "attempt": 1,
+  "final_query": "一个人坐在窗边回忆往事的画面",
+  "best_score": 0.92,
+  "count": 15
+}
+```
+
+### 改写达到最大次数
+```json
+{
+  "event": "timeline_builder.rewrite_exhausted",
+  "original": "我停在回忆",
+  "attempts": 3,
+  "best_score": 0.78,
+  "message": "达到最大改写次数，使用最佳结果"
+}
+```
+
+---
+
 ## 推荐配置
 
-### 流行歌曲 / 诗歌类（抽象歌词）
+### 生产环境（高质量）
 ```bash
-QUERY_REWRITE_MANDATORY=true   # 强制改写
-QUERY_REWRITE_MAX_ATTEMPTS=3   # 最多3次改写
+QUERY_REWRITE_ENABLED=true
+QUERY_REWRITE_SCORE_THRESHOLD=1.0   # 严格模式
+QUERY_REWRITE_MAX_ATTEMPTS=3
 ```
 
-### 纪录片 / 叙事类（具体描述）
+### 平衡模式（节省 API 调用）
 ```bash
-QUERY_REWRITE_MANDATORY=false  # 按需改写
-QUERY_REWRITE_MAX_ATTEMPTS=2   # 减少改写次数
+QUERY_REWRITE_ENABLED=true
+QUERY_REWRITE_SCORE_THRESHOLD=0.9   # 90% 即可
+QUERY_REWRITE_MAX_ATTEMPTS=2
 ```
 
-### 测试 / 开发环境（节省成本）
+### 测试/开发环境
 ```bash
-QUERY_REWRITE_ENABLED=false    # 完全禁用改写
+QUERY_REWRITE_ENABLED=false         # 禁用改写
+# 或
+QUERY_REWRITE_SCORE_THRESHOLD=0.0   # 永不改写
 ```
+
+---
+
+## API 成本分析
+
+假设一首歌 **50 句歌词**：
+
+### 场景 1: 原始查询全部达标
+| 阈值 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
+|------|----------------|---------------|--------|
+| 0.9 | 50 次 | 0 次 | 最低 |
+
+### 场景 2: 50% 歌词需改写
+| 阈值 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
+|------|----------------|---------------|--------|
+| 0.9 | 75 次 | 25 次 | 中等 |
+| 1.0 | 100 次 | 50 次 | 较高 |
+
+### 场景 3: 抽象歌词（全部需改写）
+| 阈值 | TwelveLabs 调用 | DeepSeek 调用 | 总成本 |
+|------|----------------|---------------|--------|
+| 0.9 | 100 次 | 50 次 | 较高 |
+| 1.0 | 150 次 | 100+ 次 | 最高 |
+
+**结论**: 阈值设置需根据歌词类型和成本预算权衡。
 
 ---
 
 ## 监控指标
 
-通过 Loki 日志追踪改写效果：
+### Prometheus
+```promql
+# 改写触发率
+sum(rate(query_rewrite_triggered_total[5m])) /
+sum(rate(query_search_total[5m]))
 
+# 平均改写次数
+avg(query_rewrite_attempts)
+```
+
+### Loki 日志查询
 ```logql
-# 统计强制改写的成功率
+# 统计改写成功
 {job="lyrics-mix-worker"}
-  |= "timeline_builder.mandatory_rewrite_success"
+  |= "timeline_builder.rewrite_success"
   | json
 
-# 统计按需改写的触发率
+# 查看低分数触发
 {job="lyrics-mix-worker"}
-  |= "timeline_builder.fallback_to_rewrite"
+  |= "timeline_builder.score_below_threshold"
   | json
-
-# 查看改写前后的文本
-{job="lyrics-mix-worker"}
-  |= "timeline_builder.rewrite_result"
-  | json
-  | line_format "{{.original}} → {{.rewritten}}"
+  | line_format "{{.original}} score={{.best_score}}"
 ```
 
 ---
 
 ## 常见问题
 
-### Q1: 强制改写会不会丢失歌词的精确语义？
+### Q1: 阈值设为 1.0 是否会导致无限循环？
 
-**A**: 可能会。例如歌词"我在巴黎铁塔下等你"，强制改写可能变成"埃菲尔铁塔的浪漫场景"，丢失了"等待"的语义。
+**A**: 不会。系统有 `QUERY_REWRITE_MAX_ATTEMPTS` 限制（默认 3 次），达到最大次数后会使用当前最佳结果。
 
-**建议**：如果歌词本身就是具体场景描述，使用按需改写（默认模式）。
+### Q2: 如何动态调整阈值？
 
-### Q2: 如何判断我的歌词是否适合强制改写？
-
-**A**: 检查歌词类型：
-- ✅ 适合强制改写: "我停在回忆"、"心碎的声音"、"飞翔的梦想"
-- ❌ 不适合: "一个人在街上走"、"窗外下着雨"、"坐在咖啡馆"
-
-### Q3: 可以动态切换模式吗？
-
-**A**: 可以，通过修改 `.env` 配置：
+**A**: 修改 `.env` 文件后重启服务，或通过环境变量覆盖：
 ```bash
-# 临时启用强制改写测试
-QUERY_REWRITE_MANDATORY=true
-
-# 运行测试
-python scripts/dev/run_audio_demo.py
-
-# 对比效果后决定是否永久启用
+QUERY_REWRITE_SCORE_THRESHOLD=0.85 python -m uvicorn src.api.main:app
 ```
 
-### Q4: 强制改写失败率会不会更高？
+### Q3: 分数是如何计算的？
 
-**A**: 不会。强制改写只是将改写提前到第一步，失败时仍有 2 次重试机会（attempt 1, 2）。
+**A**: 分数来自 TwelveLabs API 的语义匹配置信度，范围 0.0-1.0，表示查询与视频片段的语义相似程度。
 
-总改写次数：
-- 按需模式: 最多 3 次（0, 1, 2）
-- 强制模式: 最多 3 次（0, 1, 2）
+### Q4: 旧的 QUERY_REWRITE_MANDATORY 配置还能用吗？
+
+**A**: 已废弃。请改用 `QUERY_REWRITE_SCORE_THRESHOLD`：
+- 旧 `MANDATORY=true` → 新 `THRESHOLD=1.0`
+- 旧 `MANDATORY=false` → 新 `THRESHOLD=0.0`（或合适的阈值）
 
 ---
 

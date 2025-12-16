@@ -1,4 +1,6 @@
-# Python / 通用
+# ===================
+# Python
+# ===================
 __pycache__/
 *.py[cod]
 *.pyo
@@ -11,42 +13,57 @@ build/
 dist/
 *.egg-info/
 
+# ===================
 # 配置与敏感信息
+# ===================
+.env
 *.local
 
-# 编辑器/系统
+# ===================
+# 编辑器/IDE
+# ===================
 .DS_Store
 .idea/
 .vscode/
 Thumbs.db
+*.swp
 
-# 测试/覆盖率
+# ===================
+# 测试/覆盖率/缓存
+# ===================
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 htmlcov/
 coverage.xml
+test_output/
 
+# ===================
 # 日志
+# ===================
 *.log
 logs/*
 !logs/.gitkeep
 
+# ===================
 # 数据库
+# ===================
 *.db
 *.sqlite
 *.sqlite3
+data/db/*
+!data/db/.gitkeep
 
-# 临时渲染文件与媒资
+# ===================
+# 构建产物
+# ===================
 artifacts/*
 !artifacts/.gitkeep
-media/audio/*
-!media/audio/.gitkeep
-media/video/*
-!media/video/.gitkeep
-media/fallback/*
-!media/fallback/.gitkeep
+analysis_frames/
 
-# 媒体文件（全局忽略）
+# ===================
+# 媒体文件
+# ===================
 *.mp3
 *.mp4
 *.wav
@@ -58,26 +75,36 @@ media/fallback/*
 *.m4a
 *.ogg
 
-# poc_clean 输入文件
-poc_clean/inputs/
-poc_clean/lancedb_data/
+media/uploads/*
+!media/uploads/.gitkeep
+media/videos/*
+!media/videos/.gitkeep
+media/screenshots/*
+!media/screenshots/.gitkeep
+media/fallback/*
+!media/fallback/.gitkeep
 
-# 其他工具
+# ===================
+# Node.js
+# ===================
 node_modules/
-*.swp
-.ruff_cache/
-poc_clean/scripts/vlm_search/data/
-
-# 调试文件
-debug*.png
-
-# 测试输出
-test_output/
-
-# 数据目录
-data/*.db
-
-# 根目录 Node 文件（仅前端目录需要）
 /package.json
 /package-lock.json
-analysis_frames/
+
+# ===================
+# 前端构建
+# ===================
+apps/frontend/dist/
+apps/frontend/node_modules/
+apps/web/dist/
+apps/web/node_modules/
+
+# ===================
+# 调试文件
+# ===================
+debug*.png
+
+# ===================
+# 旧目录 (已清理)
+# ===================
+poc_clean/

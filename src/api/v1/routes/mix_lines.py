@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.services.matching.twelvelabs_video_fetcher import video_fetcher
-from src.services.timeline_editor import TimelineEditor
+from src.pipelines.editing.timeline_editor import TimelineEditor
 
 
 router = APIRouter(prefix="/api/v1/mixes/{mix_id}/lines", tags=["mix-lines"])

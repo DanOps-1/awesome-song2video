@@ -7,8 +7,8 @@ from typing import List, Optional
 import structlog
 
 from src.retrieval.protocol import VideoClip
-from src.retrieval.twelvelabs.client import TwelveLabsClient
-from src.retrieval.twelvelabs.query_rewriter import QueryRewriter
+from src.services.matching.twelvelabs_client import TwelveLabsClient
+from src.services.matching.query_rewriter import QueryRewriter
 from src.infra.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
