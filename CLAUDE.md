@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 重要：使用 uv 环境
+
+**所有 Python 命令必须使用 `uv run` 前缀运行**，确保使用项目的虚拟环境：
+
+```bash
+# 正确 ✅
+uv run python -m pytest tests/
+uv run ruff check src tests
+uv run mypy src
+
+# 错误 ❌
+python -m pytest tests/
+ruff check src tests
+mypy src
+```
+
 ## Project Overview
 
 This is an async lyrics-video mashup backend system that uses TwelveLabs AI for semantic video understanding. It automatically matches lyrics with video clips to generate karaoke-style videos.
@@ -14,11 +30,11 @@ This is an async lyrics-video mashup backend system that uses TwelveLabs AI for 
 bash start.sh
 
 # Start backend API only (port 8000)
-python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Start workers
-python -m src.workers.render_worker    # Video rendering worker
-python -m src.workers.timeline_worker  # Timeline generation worker
+uv run python -m src.workers.render_worker    # Video rendering worker
+uv run python -m src.workers.timeline_worker  # Timeline generation worker
 
 # Start frontends
 cd apps/frontend && npm run dev -- --port 6008  # User frontend
@@ -28,26 +44,26 @@ cd apps/web && npm run dev -- --port 6006       # Admin dashboard
 ### Testing
 ```bash
 # Run all tests
-pytest tests/
+uv run pytest tests/
 
 # Run specific test file
-pytest tests/contract/test_health.py
+uv run pytest tests/contract/test_health.py
 
 # Run e2e tests
-python scripts/dev/e2e_full_render_test.py
+uv run python scripts/dev/e2e_full_render_test.py
 
 # Test lyrics fetcher
-python -m src.lyrics.fetcher "歌曲名" "歌手名"
+uv run python -m src.lyrics.fetcher "歌曲名" "歌手名"
 ```
 
 ### Code Quality
 ```bash
 # Lint and format
-ruff check src tests
-ruff format src tests
+uv run ruff check src tests
+uv run ruff format src tests
 
 # Type checking
-mypy src
+uv run mypy src
 ```
 
 ### Pre-commit Checks (IMPORTANT)
@@ -55,7 +71,7 @@ mypy src
 
 ```bash
 # 1. Python 代码检查（必须通过）
-ruff check src tests && ruff format --check src tests
+uv run ruff check src tests && uv run ruff format --check src tests
 
 # 2. 前端构建检查（必须通过）
 cd apps/frontend && npx vite build
@@ -66,13 +82,13 @@ cd apps/web && npx vite build
 
 或者一键运行所有检查：
 ```bash
-ruff check src tests && ruff format --check src tests && \
+uv run ruff check src tests && uv run ruff format --check src tests && \
   (cd apps/frontend && npx vite build) && \
   (cd apps/web && npx vite build) && \
   echo "✅ All checks passed!"
 ```
 
-如果格式检查失败，运行 `ruff format src tests` 自动修复。
+如果格式检查失败，运行 `uv run ruff format src tests` 自动修复。
 
 ### Prerequisites
 - Python >= 3.11
