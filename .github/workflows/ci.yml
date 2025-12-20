@@ -26,7 +26,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.8.6
 
       - name: Lint check
         run: ruff check src tests
