@@ -59,10 +59,13 @@ class TimelineResult:
     lines: list[TimelineLine] = field(default_factory=list)
 
 
-class CandidateWithUsage(TypedDict):
-    candidate: dict[str, int | float | str]
+class CandidateWithUsage(TypedDict, total=False):
+    candidate: dict[str, Any]
     usage_count: int
     score: float
+    original_score: float
+    continuity_bonus: float
+    video_id: str
 
 
 class TimelineBuilder:
@@ -173,9 +176,7 @@ class TimelineBuilder:
             return start_ms, end_ms
 
         # 找最近的节拍
-        result = find_nearest_beat(
-            beats, start_ms, max_offset_ms=self._beat_align_max_offset_ms
-        )
+        result = find_nearest_beat(beats, start_ms, max_offset_ms=self._beat_align_max_offset_ms)
 
         if result is None:
             return start_ms, end_ms
@@ -454,7 +455,9 @@ class TimelineBuilder:
 
             # 应用卡点评分
             # 注意：onset 模式的鼓点分析移到渲染阶段，避免匹配时分析多个候选导致太慢
-            beat_sync_mode = self._settings.beat_sync_mode if self._settings.beat_sync_enabled else None
+            beat_sync_mode = (
+                self._settings.beat_sync_mode if self._settings.beat_sync_enabled else None
+            )
 
             if beat_sync_mode == "action" and beats and beat_aligner.should_apply_beat_sync(beats):
                 # 动作高光对齐模式（旧模式，在匹配阶段计算）
@@ -780,8 +783,8 @@ class TimelineBuilder:
         return timeline
 
     def _normalize_candidates(
-        self, raw_candidates: list[dict[str, int | float | str]], start_ms: int, end_ms: int
-    ) -> list[dict[str, int | float | str]]:
+        self, raw_candidates: list[dict[str, Any]], start_ms: int, end_ms: int
+    ) -> list[dict[str, Any]]:
         """
         规范化候选视频片段，过滤掉时长不足或分数过低的候选。
 
@@ -796,8 +799,8 @@ class TimelineBuilder:
         low_score_filtered = 0
 
         def _candidate_defaults(
-            candidate: dict[str, int | float | str],
-        ) -> dict[str, int | float | str] | None:
+            candidate: dict[str, Any],
+        ) -> dict[str, Any] | None:
             nonlocal low_score_filtered
 
             # 🎯 分数过滤：过滤掉分数过低的候选
@@ -1070,9 +1073,7 @@ class TimelineBuilder:
                 # 搜索
                 current_candidates = await client.search_segments(current_query, limit=limit)
                 current_top_score = (
-                    float(current_candidates[0].get("score", 0.0))
-                    if current_candidates
-                    else 0.0
+                    float(current_candidates[0].get("score", 0.0)) if current_candidates else 0.0
                 )
 
                 self._logger.info(
@@ -1142,8 +1143,8 @@ class TimelineBuilder:
         return candidates
 
     def _select_diverse_candidates(
-        self, candidates: list[dict[str, int | float | str]], limit: int
-    ) -> list[dict[str, int | float | str]]:
+        self, candidates: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
         """
         从候选列表中选择多样化的片段，严格确保每个片段只使用一次。
 
@@ -1226,9 +1227,7 @@ class TimelineBuilder:
         valid_candidates.sort(key=lambda x: -x["score"])
 
         # 提取候选片段并限制数量
-        selected: list[dict[str, int | float | str]] = [
-            item["candidate"] for item in valid_candidates[:limit]
-        ]
+        selected: list[dict[str, Any]] = [item["candidate"] for item in valid_candidates[:limit]]
 
         # 策略3：如果没有可用片段，返回空列表，让调用方使用随机选择
         if not selected:
@@ -1281,11 +1280,11 @@ class TimelineBuilder:
 
     async def _select_candidates_with_beat_sync(
         self,
-        candidates: list[dict[str, int | float | str]],
+        candidates: list[dict[str, Any]],
         limit: int,
         lyric_start_ms: int,
         beats: BeatAnalysisResult,
-    ) -> list[dict[str, int | float | str]]:
+    ) -> list[dict[str, Any]]:
         """
         选择候选片段并应用卡点评分。
 

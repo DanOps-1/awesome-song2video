@@ -24,7 +24,7 @@ from src.domain.models.beat_sync import BeatAnalysisData
 from src.infra.persistence.database import get_session
 from src.infra.config.settings import get_settings
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
-from src.pipelines.matching.timeline_builder import TimelineBuilder
+from src.pipelines.matching.timeline_builder import TimelineBuilder, TimelineResult
 from src.workers import BaseWorkerSettings
 
 logger = structlog.get_logger(__name__)
@@ -263,9 +263,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
                 from sqlmodel import select
 
                 # 检查是否已存在
-                stmt = select(BeatAnalysisData).where(
-                    BeatAnalysisData.mix_request_id == mix_id
-                )
+                stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
                 result = await session.execute(stmt)
                 existing = result.scalar_one_or_none()
 
@@ -336,9 +334,11 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
         # 进度范围: 15% - 90%
         adjusted_progress = 15.0 + progress * 0.75
         await repo.update_timeline_progress(mix_id, adjusted_progress)
-        logger.info("timeline_worker.match_progress", mix_id=mix_id, progress=round(adjusted_progress, 1))
+        logger.info(
+            "timeline_worker.match_progress", mix_id=mix_id, progress=round(adjusted_progress, 1)
+        )
 
-    result = await builder.match_videos_for_lines(
+    timeline_result: TimelineResult = await builder.match_videos_for_lines(
         lines=merged_lines,
         audio_duration_ms=audio_duration_ms,
         beats=beats,
@@ -354,7 +354,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
 
     # 保存合并后的歌词行和视频候选
     new_lines: list[LyricLine] = []
-    for index, result_line in enumerate(result.lines, start=1):
+    for index, result_line in enumerate(timeline_result.lines, start=1):
         line_id = str(uuid4())
 
         new_line = LyricLine(
@@ -373,7 +373,7 @@ async def match_videos(ctx: dict | None, mix_id: str) -> None:
     await repo.bulk_insert_lines(new_lines)
 
     # 保存视频候选
-    for new_line, result_line in zip(new_lines, result.lines):
+    for new_line, result_line in zip(new_lines, timeline_result.lines):
         candidates: list[VideoSegmentMatch] = []
         for candidate in result_line.candidates:
             candidates.append(

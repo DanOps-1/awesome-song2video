@@ -72,6 +72,7 @@ async def get_preview_manifest(
         try:
             async with get_session() as session:
                 from sqlmodel import select
+
                 stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
                 beat_result = await session.execute(stmt)
                 beat_data = beat_result.scalar_one_or_none()

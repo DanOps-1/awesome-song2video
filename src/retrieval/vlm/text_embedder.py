@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 import structlog
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 logger = structlog.get_logger(__name__)
 
@@ -32,8 +35,8 @@ class TextEmbedder:
         """
         self.model_name = model_name
         self._device = device
-        self.model = None
-        self._embedding_dim = None
+        self.model: Optional[SentenceTransformer] = None
+        self._embedding_dim: Optional[int] = None
 
     @property
     def device(self) -> str:
@@ -69,13 +72,14 @@ class TextEmbedder:
             归一化向量
         """
         self.load_model()
+        assert self.model is not None
 
         # e5 模型查询使用 query 前缀
         if "e5" in self.model_name.lower():
             query = f"query: {query}"
 
         vec = self.model.encode(query, normalize_embeddings=True)
-        return vec
+        return np.asarray(vec)
 
     def embed_document(self, doc: str) -> np.ndarray:
         """编码文档文本（用于索引）
@@ -87,13 +91,14 @@ class TextEmbedder:
             归一化向量
         """
         self.load_model()
+        assert self.model is not None
 
         # e5 模型文档使用 passage 前缀
         if "e5" in self.model_name.lower():
             doc = f"passage: {doc}"
 
         vec = self.model.encode(doc, normalize_embeddings=True)
-        return vec
+        return np.asarray(vec)
 
     def embed_batch(
         self,
@@ -112,6 +117,7 @@ class TextEmbedder:
             (N, dim) 形状的向量数组
         """
         self.load_model()
+        assert self.model is not None
 
         # e5 模型添加前缀
         if "e5" in self.model_name.lower():
@@ -123,11 +129,12 @@ class TextEmbedder:
             normalize_embeddings=True,
             show_progress_bar=show_progress,
         )
-        return vecs
+        return np.asarray(vecs)
 
     def get_embedding_dim(self) -> int:
         """获取嵌入维度"""
         self.load_model()
+        assert self._embedding_dim is not None
         return self._embedding_dim
 
     @staticmethod

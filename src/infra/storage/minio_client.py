@@ -25,7 +25,7 @@ class MediaClient:
         return object_name
 
     def generate_presigned(self, object_name: str) -> str:
-        return self.client.presigned_get_object(self.bucket, object_name)
+        return str(self.client.presigned_get_object(self.bucket, object_name))
 
 
 media_client = MediaClient()

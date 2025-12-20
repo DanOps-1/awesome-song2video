@@ -96,7 +96,7 @@ class ShotDetector:
             batch_size = int(os.environ.get("TRANSNET_BATCH", 32))
         input_height, input_width = 27, 48
 
-        all_predictions = []
+        all_predictions: list[float] = []
 
         for i in range(0, total_frames, batch_size):
             batch_indices = list(range(i, min(i + batch_size, total_frames)))
@@ -118,6 +118,7 @@ class ShotDetector:
 
             # 推理
             try:
+                assert self.model is not None, "Model not loaded"
                 predictions = self.model(input_tensor)
 
                 # 处理不同的返回格式
@@ -184,7 +185,7 @@ class ShotDetector:
 
         # 均匀分布提取关键帧
         indices = np.linspace(start, end - 1, num_frames, dtype=int)
-        return indices.tolist()
+        return list(indices)
 
     def get_shots_with_timestamps(
         self,

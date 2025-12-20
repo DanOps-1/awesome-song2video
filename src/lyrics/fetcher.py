@@ -132,7 +132,7 @@ class QQMusicSource(LyricsSource):
 
     async def search(self, keyword: str, limit: int = 5) -> list[SongInfo]:
         url = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
-        params = {
+        params: dict[str, str | int] = {
             "w": keyword,
             "format": "json",
             "p": 1,
@@ -172,7 +172,7 @@ class QQMusicSource(LyricsSource):
 
     async def get_lyrics(self, song: SongInfo) -> str | None:
         url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
-        params = {
+        params: dict[str, str | int] = {
             "songmid": song.id,
             "format": "json",
             "nobase64": 1,
@@ -191,7 +191,7 @@ class QQMusicSource(LyricsSource):
                 lyric = data.get("lyric", "")
                 if lyric:
                     logger.info("lyrics.qq.fetch", song_id=song.id, length=len(lyric))
-                    return lyric
+                    return str(lyric)
 
                 logger.warning("lyrics.qq.not_found", song_id=song.id)
                 return None
@@ -297,7 +297,7 @@ class KugouMusicSource(LyricsSource):
 
     async def search(self, keyword: str, limit: int = 5) -> list[SongInfo]:
         url = "https://mobileservice.kugou.com/api/v3/search/song"
-        params = {
+        params: dict[str, str | int] = {
             "keyword": keyword,
             "page": 1,
             "pagesize": limit,
@@ -335,7 +335,7 @@ class KugouMusicSource(LyricsSource):
     async def get_lyrics(self, song: SongInfo) -> str | None:
         # 酷狗需要先获取歌词候选列表
         search_url = "https://krcs.kugou.com/search"
-        params = {
+        params: dict[str, str | int] = {
             "ver": 1,
             "man": "yes",
             "client": "mobi",
@@ -455,7 +455,7 @@ class LrclibSource(LyricsSource):
                 lyric = data.get("syncedLyrics") or data.get("plainLyrics")
                 if lyric:
                     logger.info("lyrics.lrclib.fetch", song_id=song.id, length=len(lyric))
-                    return lyric
+                    return str(lyric)
 
                 logger.warning("lyrics.lrclib.not_found", song_id=song.id)
                 return None

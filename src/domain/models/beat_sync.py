@@ -38,12 +38,8 @@ class VideoActionCache(SQLModel, table=True):
     __tablename__ = "video_action_cache"
 
     video_id: str = Field(primary_key=True)
-    action_points: list[dict[str, Any]] = Field(
-        default_factory=list, sa_column=Column(JSON)
-    )
+    action_points: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
     scene_changes: list[int] = Field(default_factory=list, sa_column=Column(JSON))
-    motion_intensity: list[tuple[int, float]] = Field(
-        default_factory=list, sa_column=Column(JSON)
-    )
+    motion_intensity: list[tuple[int, float]] = Field(default_factory=list, sa_column=Column(JSON))
     analyzed_at: Optional[datetime] = Field(default=None)
     analysis_source: str = Field(default="unknown")  # "twelvelabs" or "ffmpeg"

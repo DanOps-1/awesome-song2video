@@ -105,9 +105,7 @@ class ActionDetector:
             async with get_session() as session:
                 from sqlmodel import select
 
-                stmt = select(VideoActionCache).where(
-                    VideoActionCache.video_id == video_id
-                )
+                stmt = select(VideoActionCache).where(VideoActionCache.video_id == video_id)
                 result = await session.execute(stmt)
                 cached = result.scalar_one_or_none()
 
@@ -145,9 +143,7 @@ class ActionDetector:
                 from sqlmodel import select
 
                 # 检查是否已存在
-                stmt = select(VideoActionCache).where(
-                    VideoActionCache.video_id == profile.video_id
-                )
+                stmt = select(VideoActionCache).where(VideoActionCache.video_id == profile.video_id)
                 result = await session.execute(stmt)
                 existing = result.scalar_one_or_none()
 
@@ -185,9 +181,7 @@ class ActionDetector:
                 error=str(exc),
             )
 
-    async def _analyze_with_twelvelabs(
-        self, video_id: str
-    ) -> VideoActionProfile | None:
+    async def _analyze_with_twelvelabs(self, video_id: str) -> VideoActionProfile | None:
         """使用 TwelveLabs Generate API 分析视频高光。"""
         try:
             from twelvelabs import TwelveLabs
@@ -196,7 +190,7 @@ class ActionDetector:
 
             # 调用 generate API 获取 highlights
             def _call_api() -> Any:
-                return client.generate.summarize(
+                return client.generate.summarize(  # type: ignore[attr-defined]
                     video_id=video_id,
                     type="highlight",
                     prompt="Identify all action moments, movement changes, scene transitions, and visually impactful scenes with precise timestamps.",
@@ -367,11 +361,7 @@ class ActionDetector:
         Returns:
             时间范围内的动作点列表
         """
-        return [
-            ap
-            for ap in profile.action_points
-            if start_ms <= ap.timestamp_ms < end_ms
-        ]
+        return [ap for ap in profile.action_points if start_ms <= ap.timestamp_ms < end_ms]
 
     def get_nearest_action(
         self,

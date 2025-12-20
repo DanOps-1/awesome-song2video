@@ -84,7 +84,7 @@ class CLIPDatabase:
         from qdrant_client.models import PointStruct
 
         collection_info = self.client.get_collection(self.collection_name)
-        start_id = collection_info.points_count
+        start_id = collection_info.points_count or 0
 
         points = [
             PointStruct(
@@ -144,10 +144,10 @@ class CLIPDatabase:
 
         return [
             {
-                "video_name": r.payload.get("video_name", ""),
-                "start_time": r.payload.get("start_time", 0.0),
-                "end_time": r.payload.get("end_time", 0.0),
-                "text": r.payload.get("text", ""),
+                "video_name": (r.payload or {}).get("video_name", ""),
+                "start_time": (r.payload or {}).get("start_time", 0.0),
+                "end_time": (r.payload or {}).get("end_time", 0.0),
+                "text": (r.payload or {}).get("text", ""),
                 "score": r.score,
             }
             for r in results.points
@@ -177,4 +177,4 @@ class CLIPDatabase:
     def count(self) -> int:
         """获取总镜头数"""
         info = self.client.get_collection(self.collection_name)
-        return info.points_count
+        return info.points_count or 0

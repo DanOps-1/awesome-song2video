@@ -107,8 +107,8 @@ class CLIPRetriever:
         Returns:
             索引的镜头数量
         """
-        video_path = Path(video_path)
-        video_name = video_path.stem
+        video_file = Path(video_path)
+        video_name = video_file.stem
 
         # 检测镜头
         shots = self._shot_detector.detect_shots(str(video_path))

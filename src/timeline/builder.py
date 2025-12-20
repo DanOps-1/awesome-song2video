@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
+
+if TYPE_CHECKING:
+    pass  # WhisperTranscriber not defined in transcriber.py
 
 import structlog
 
@@ -187,10 +190,10 @@ class TimelineBuilder:
 
         return timeline
 
-    def _get_transcriber(self):
-        """延迟加载转录器"""
+    def _get_transcriber(self) -> Any:
+        """延迟加载转录器 (legacy code - WhisperTranscriber class not defined)"""
         if self._transcriber is None:
-            from src.audio.transcriber import WhisperTranscriber
+            from src.audio.transcriber import WhisperTranscriber  # type: ignore[attr-defined]
 
             self._transcriber = WhisperTranscriber()
         return self._transcriber

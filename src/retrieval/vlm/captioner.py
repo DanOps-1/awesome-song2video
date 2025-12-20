@@ -10,7 +10,7 @@ import io
 from typing import List, Optional
 
 import numpy as np
-import requests
+import requests  # type: ignore[import-untyped]
 import structlog
 from PIL import Image
 
@@ -139,10 +139,10 @@ class VLMCaptioner:
             data = response.json()
 
             if "choices" in data:
-                return data["choices"][0]["message"]["content"]
+                return str(data["choices"][0]["message"]["content"])
             elif "response" in data:
                 candidates = data["response"]["candidates"]
-                return candidates[0]["content"]["parts"][0]["text"]
+                return str(candidates[0]["content"]["parts"][0]["text"])
             else:
                 raise ValueError(f"Unknown response format: {data}")
 

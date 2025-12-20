@@ -15,13 +15,15 @@ logger = structlog.get_logger(__name__)
 # 尝试导入可选依赖
 try:
     from openai import AsyncOpenAI
+
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
-    AsyncOpenAI = None
+    AsyncOpenAI = None  # type: ignore[misc,assignment]
 
 try:
     import translators as ts
+
     HAS_TRANSLATORS = True
 except ImportError:
     HAS_TRANSLATORS = False
@@ -34,15 +36,15 @@ def is_english(text: str) -> bool:
         return False
 
     # 去除标点和数字
-    clean_text = re.sub(r'[^\w\s]', '', text)
-    clean_text = re.sub(r'\d+', '', clean_text)
+    clean_text = re.sub(r"[^\w\s]", "", text)
+    clean_text = re.sub(r"\d+", "", clean_text)
 
     if not clean_text.strip():
         return False
 
     try:
         lang = detect(clean_text)
-        return lang == 'en'
+        return str(lang) == "en"
     except LangDetectException:
         # 回退：检查是否主要是ASCII字符
         ascii_ratio = sum(1 for c in clean_text if ord(c) < 128) / len(clean_text)
@@ -160,9 +162,15 @@ class LyricsTranslator:
                     to_language="zh",
                 )
                 translations.append(result or "")
-                logger.debug("lyrics_translator.free_api_success", line=line[:30], result=result[:30] if result else "")
+                logger.debug(
+                    "lyrics_translator.free_api_success",
+                    line=line[:30],
+                    result=result[:30] if result else "",
+                )
             except Exception as e:
-                logger.warning("lyrics_translator.free_api_line_failed", line=line[:30], error=str(e))
+                logger.warning(
+                    "lyrics_translator.free_api_line_failed", line=line[:30], error=str(e)
+                )
                 translations.append("")
 
         return translations
@@ -173,7 +181,7 @@ class LyricsTranslator:
             return [""] * len(lines)
 
         # 构建输入：每行一个歌词，用数字标记
-        numbered_lines = "\n".join(f"{i+1}. {line}" for i, line in enumerate(lines))
+        numbered_lines = "\n".join(f"{i + 1}. {line}" for i, line in enumerate(lines))
 
         system_prompt = """你是一位专业的歌词翻译专家。请将以下英文歌词翻译成中文。
 
@@ -229,7 +237,7 @@ class LyricsTranslator:
                 continue
 
             # 匹配 "1. 翻译内容" 格式
-            match = re.match(r'^(\d+)\.\s*(.+)$', line)
+            match = re.match(r"^(\d+)\.\s*(.+)$", line)
             if match:
                 idx = int(match.group(1)) - 1
                 translation = match.group(2).strip()

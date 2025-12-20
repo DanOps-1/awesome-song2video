@@ -372,7 +372,8 @@ class TwelveLabsClient:
                         getattr(item, "rank", None),
                     )
                 )
-                seen_videos.add(video_id)
+                if video_id:
+                    seen_videos.add(video_id)
 
             if len(results) >= limit:
                 break

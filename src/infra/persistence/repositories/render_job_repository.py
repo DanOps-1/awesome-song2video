@@ -89,7 +89,7 @@ class RenderJobRepository:
             stmt = (
                 select(RenderJob)
                 .where(RenderJob.mix_request_id == mix_id)
-                .order_by(RenderJob.submitted_at.desc())
+                .order_by(RenderJob.submitted_at.desc())  # type: ignore[union-attr]
             )
             result = await session.exec(stmt)
             return list(result)
@@ -99,7 +99,7 @@ class RenderJobRepository:
         from sqlmodel import select
 
         async with get_session() as session:
-            stmt = select(RenderJob).order_by(RenderJob.submitted_at.desc())
+            stmt = select(RenderJob).order_by(RenderJob.submitted_at.desc())  # type: ignore[union-attr]
             result = await session.exec(stmt)
             return list(result)
 

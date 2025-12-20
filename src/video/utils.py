@@ -30,7 +30,7 @@ def extract_frames(video_path: str | Path, frame_indices: list[int]) -> np.ndarr
     try:
         vr = decord.VideoReader(str(video_path), ctx=decord.cpu(0))
         frames = vr.get_batch(frame_indices).asnumpy()
-        return frames
+        return np.asarray(frames)
     except Exception as e:
         logger.error("video.extract_frames_failed", error=str(e), path=str(video_path))
         return np.array([])

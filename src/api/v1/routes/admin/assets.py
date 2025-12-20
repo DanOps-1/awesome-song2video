@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
-import aiofiles
+import aiofiles  # type: ignore[import-untyped]
 from fastapi import APIRouter, File, HTTPException, Path as PathParam, Query, UploadFile
 from pydantic import BaseModel
 

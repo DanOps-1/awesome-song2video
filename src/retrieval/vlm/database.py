@@ -7,9 +7,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import structlog
+
+if TYPE_CHECKING:
+    from qdrant_client import QdrantClient
 
 logger = structlog.get_logger(__name__)
 
@@ -50,7 +53,7 @@ class VLMDatabase:
         self.db_path = db_path
         self.collection_name = collection_name
         self.embedding_dim = embedding_dim
-        self.client = None
+        self.client: Optional[QdrantClient] = None
 
     def _connect(self) -> None:
         """连接数据库"""
@@ -68,6 +71,7 @@ class VLMDatabase:
         """确保集合存在"""
         from qdrant_client.models import Distance, VectorParams
 
+        assert self.client is not None
         collections = self.client.get_collections().collections
         exists = any(c.name == self.collection_name for c in collections)
 
@@ -97,9 +101,10 @@ class VLMDatabase:
         from qdrant_client.models import PointStruct
 
         self._connect()
+        assert self.client is not None
 
         collection_info = self.client.get_collection(self.collection_name)
-        start_id = collection_info.points_count
+        start_id = collection_info.points_count or 0
 
         points = [
             PointStruct(
@@ -143,6 +148,7 @@ class VLMDatabase:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         self._connect()
+        assert self.client is not None
 
         query_filter = None
         if video_filter:
@@ -164,10 +170,10 @@ class VLMDatabase:
 
         return [
             {
-                "video_name": r.payload.get("video_name", ""),
-                "start_time": r.payload.get("start_time", 0.0),
-                "end_time": r.payload.get("end_time", 0.0),
-                "description": r.payload.get("description", ""),
+                "video_name": (r.payload or {}).get("video_name", ""),
+                "start_time": (r.payload or {}).get("start_time", 0.0),
+                "end_time": (r.payload or {}).get("end_time", 0.0),
+                "description": (r.payload or {}).get("description", ""),
                 "score": r.score,
             }
             for r in results.points
@@ -185,6 +191,7 @@ class VLMDatabase:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         self._connect()
+        assert self.client is not None
 
         query_filter = None
         if video_name:
@@ -220,6 +227,7 @@ class VLMDatabase:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         self._connect()
+        assert self.client is not None
 
         self.client.delete(
             collection_name=self.collection_name,
@@ -237,12 +245,14 @@ class VLMDatabase:
     def count(self) -> int:
         """获取总镜头数"""
         self._connect()
+        assert self.client is not None
         info = self.client.get_collection(self.collection_name)
-        return info.points_count
+        return int(info.points_count or 0)
 
     def clear(self) -> None:
         """清空数据库"""
         self._connect()
+        assert self.client is not None
         self.client.delete_collection(self.collection_name)
         self._ensure_collection()
         logger.info("vlm_database.cleared", collection=self.collection_name)

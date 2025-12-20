@@ -53,8 +53,8 @@ _config_watcher: RenderConfigWatcher | None = None
 ASPECT_RATIO_MAP: dict[str, tuple[int, int]] = {
     "16:9": (1920, 1080),  # 横屏 - YouTube/B站
     "9:16": (1080, 1920),  # 竖屏 - 抖音/TikTok/快手/小红书
-    "1:1": (1080, 1080),   # 正方形 - Instagram/微信
-    "4:3": (1440, 1080),   # 传统比例
+    "1:1": (1080, 1080),  # 正方形 - Instagram/微信
+    "4:3": (1440, 1080),  # 传统比例
 }
 DEFAULT_ASPECT_RATIO = "16:9"
 
@@ -351,11 +351,7 @@ def _build_render_line(line: LyricLine) -> RenderLine:
             score=getattr(c, "score", 0.0),
         )
 
-    video_candidates = (
-        [_make_video_candidate(c) for c in candidates]
-        if candidates
-        else None
-    )
+    video_candidates = [_make_video_candidate(c) for c in candidates] if candidates else None
 
     return RenderLine(
         source_video_id=source_video_id,
@@ -437,7 +433,11 @@ async def _extract_clips(
                     actual_end_ms = candidate.end_ms
                     onset_offset_ms = 0
 
-                    if music_onsets and settings.beat_sync_enabled and settings.beat_sync_mode == "onset":
+                    if (
+                        music_onsets
+                        and settings.beat_sync_enabled
+                        and settings.beat_sync_mode == "onset"
+                    ):
                         try:
                             video_stream_url = video_fetcher._get_stream_url(candidate.video_id)
                             alignment = await beat_aligner.calculate_onset_alignment(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -73,6 +74,7 @@ def configure_logging() -> None:
     ]
 
     # 控制台 renderer（彩色 vs JSON）
+    console_renderer: Any
     if is_tty:
         # 终端环境：使用彩色输出
         console_renderer = structlog.dev.ConsoleRenderer(colors=True)
@@ -81,7 +83,7 @@ def configure_logging() -> None:
         console_renderer = structlog.processors.JSONRenderer(ensure_ascii=False)
 
     structlog.configure(
-        processors=shared_processors
+        processors=shared_processors  # type: ignore[arg-type]
         + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],

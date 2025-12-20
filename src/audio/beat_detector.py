@@ -55,33 +55,23 @@ async def detect_beats(
         y, sample_rate = librosa.load(audio_path.as_posix(), sr=sr)
 
         # 检测节拍
-        tempo, beat_frames = librosa.beat.beat_track(
-            y=y, sr=sample_rate, hop_length=hop_length
-        )
+        tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sample_rate, hop_length=hop_length)
 
         # 转换为时间
-        beat_times = librosa.frames_to_time(
-            beat_frames, sr=sample_rate, hop_length=hop_length
-        )
+        beat_times = librosa.frames_to_time(beat_frames, sr=sample_rate, hop_length=hop_length)
 
         # 计算节拍强度（基于 onset strength）
-        onset_env = librosa.onset.onset_strength(
-            y=y, sr=sample_rate, hop_length=hop_length
-        )
+        onset_env = librosa.onset.onset_strength(y=y, sr=sample_rate, hop_length=hop_length)
 
         return float(tempo), beat_times, beat_frames, onset_env
 
-    tempo, beat_times, beat_frames, onset_env = await asyncio.to_thread(
-        _load_and_analyze
-    )
+    tempo, beat_times, beat_frames, onset_env = await asyncio.to_thread(_load_and_analyze)
 
     # 转换为毫秒
     beat_times_ms = [int(t * 1000) for t in beat_times]
 
     # 提取节拍强度
-    beat_strength = [
-        float(onset_env[f]) for f in beat_frames if f < len(onset_env)
-    ]
+    beat_strength = [float(onset_env[f]) for f in beat_frames if f < len(onset_env)]
 
     # 估算强拍位置（假设 4/4 拍）
     downbeat_times_ms = _estimate_downbeats(beat_times_ms, tempo)

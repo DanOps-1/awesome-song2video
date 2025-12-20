@@ -18,7 +18,9 @@ async def test_timeline_builder_returns_segments(
 
     builder = TimelineBuilder()
 
-    async def fake_transcribe(path: Path) -> list[dict[str, Any]]:
+    async def fake_transcribe(
+        path: Path, language: str | None = None, prompt: str | None = None
+    ) -> list[dict[str, Any]]:
         return [
             {"text": "第一句", "start": 0.0, "end": 1.0},
             {"text": "第二句", "start": 1.0, "end": 2.0},

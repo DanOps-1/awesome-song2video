@@ -154,6 +154,7 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
     try:
         async with get_session() as session:
             from sqlmodel import select
+
             stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
             result = await session.execute(stmt)
             beat_data = result.scalar_one_or_none()

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from pydub import AudioSegment  # type: ignore[import-untyped]
+from pydub import AudioSegment
 import structlog
 
 logger = structlog.get_logger(__name__)

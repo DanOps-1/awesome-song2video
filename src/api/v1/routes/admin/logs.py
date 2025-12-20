@@ -159,15 +159,17 @@ async def stream_logs(
 @router.get("/files")
 async def list_log_files() -> dict[str, list[dict]]:
     """列出可用的日志文件。"""
-    files = []
+    files: list[dict[str, str | int]] = []
     if LOG_DIR.exists():
         for f in LOG_DIR.iterdir():
             if f.is_file() and f.suffix in (".log", ".log.1", ".log.2"):
-                files.append({
-                    "name": f.name,
-                    "size": f.stat().st_size,
-                    "modified": int(f.stat().st_mtime),
-                })
+                files.append(
+                    {
+                        "name": f.name,
+                        "size": f.stat().st_size,
+                        "modified": int(f.stat().st_mtime),
+                    }
+                )
 
     # 按修改时间倒序
     files.sort(key=lambda x: x["modified"], reverse=True)

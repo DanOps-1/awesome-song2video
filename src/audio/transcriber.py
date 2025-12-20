@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Sequence, TypedDict, cast
 
 from anyio import to_thread
-from pydub import AudioSegment  # type: ignore[import-untyped]
-import whisper  # type: ignore[import-untyped]
+from pydub import AudioSegment
+import whisper
 import structlog
 
 from src.audio.vocal_detector import detect_vocal_start
@@ -155,7 +155,7 @@ async def transcribe_with_timestamps(
     def _run_model() -> Sequence[WhisperResult]:
         model = _get_model()
 
-        kwargs = {"word_timestamps": True}
+        kwargs: dict[str, str | bool] = {"word_timestamps": True}
         if language:
             kwargs["language"] = language
         if prompt:

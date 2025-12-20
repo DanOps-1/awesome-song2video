@@ -9,6 +9,7 @@ async def test_timeline_performance_under_load(app_client: AsyncClient) -> None:
     payload = {
         "song_title": "压力测试",
         "source_type": "upload",
+        "audio_asset_id": "test-audio-id",
         "lyrics_text": "\n".join([f"line {i}" for i in range(30)]),
         "language": "zh",
         "auto_generate": False,

@@ -50,6 +50,30 @@ ruff format src tests
 mypy src
 ```
 
+### Pre-commit Checks (IMPORTANT)
+**每次提交代码前，必须在本地运行以下检查确保 CI 能通过：**
+
+```bash
+# 1. Python 代码检查（必须通过）
+ruff check src tests && ruff format --check src tests
+
+# 2. 前端构建检查（必须通过）
+cd apps/frontend && npx vite build
+
+# 3. 管理后台构建检查（必须通过）
+cd apps/web && npx vite build
+```
+
+或者一键运行所有检查：
+```bash
+ruff check src tests && ruff format --check src tests && \
+  (cd apps/frontend && npx vite build) && \
+  (cd apps/web && npx vite build) && \
+  echo "✅ All checks passed!"
+```
+
+如果格式检查失败，运行 `ruff format src tests` 自动修复。
+
 ### Prerequisites
 - Python >= 3.11
 - Redis (must be running)

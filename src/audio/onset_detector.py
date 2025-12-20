@@ -64,9 +64,7 @@ async def detect_onsets(
             y = y[start_sample:end_sample]
 
         # 计算 onset envelope（能量包络）
-        onset_env = librosa.onset.onset_strength(
-            y=y, sr=sample_rate, hop_length=hop_length
-        )
+        onset_env = librosa.onset.onset_strength(y=y, sr=sample_rate, hop_length=hop_length)
 
         # 检测 onset 时间点
         onset_frames = librosa.onset.onset_detect(
@@ -77,9 +75,7 @@ async def detect_onsets(
         )
 
         # 转换为时间
-        onset_times = librosa.frames_to_time(
-            onset_frames, sr=sample_rate, hop_length=hop_length
-        )
+        onset_times = librosa.frames_to_time(onset_frames, sr=sample_rate, hop_length=hop_length)
 
         # 提取每个 onset 的强度
         strengths = [float(onset_env[f]) for f in onset_frames if f < len(onset_env)]
@@ -133,20 +129,27 @@ async def detect_onsets_from_video(
         cmd = [
             "ffmpeg",
             "-y",
-            "-ss", str(start_sec),
+            "-ss",
+            str(start_sec),
         ]
 
         if duration_sec:
             cmd.extend(["-t", str(duration_sec)])
 
-        cmd.extend([
-            "-i", video_path,
-            "-vn",  # 不要视频
-            "-acodec", "pcm_s16le",
-            "-ar", "22050",
-            "-ac", "1",
-            tmp_audio_path.as_posix(),
-        ])
+        cmd.extend(
+            [
+                "-i",
+                video_path,
+                "-vn",  # 不要视频
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "22050",
+                "-ac",
+                "1",
+                tmp_audio_path.as_posix(),
+            ]
+        )
 
         result = await asyncio.to_thread(
             subprocess.run,
@@ -283,9 +286,7 @@ def find_best_offset(
         shifted_video_onsets = [t + offset for t in video_onsets]
 
         # 计算对齐分数
-        score = calculate_onset_alignment_score(
-            music_onsets, shifted_video_onsets, tolerance_ms
-        )
+        score = calculate_onset_alignment_score(music_onsets, shifted_video_onsets, tolerance_ms)
 
         if score > best_score:
             best_score = score

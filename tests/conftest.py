@@ -30,17 +30,29 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     loop.close()
 
 
-@pytest.fixture(scope="session", autouse=True)
-def setup_database(event_loop: asyncio.AbstractEventLoop) -> None:
-    init_engine("sqlite+aiosqlite:///:memory:")
-    event_loop.run_until_complete(init_models())
-
-
-@pytest.fixture
+@pytest.fixture(scope="function")
 async def app_client() -> AsyncGenerator[AsyncClient, None]:
+    """每个测试函数创建独立的数据库和客户端。"""
+    # 使用文件数据库以确保跨连接持久化
+    import tempfile
+    import os
+
+    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db_file.close()
+    db_url = f"sqlite+aiosqlite:///{db_file.name}"
+
+    init_engine(db_url)
+    await init_models()
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+
+    # 清理临时数据库文件
+    try:
+        os.unlink(db_file.name)
+    except OSError:
+        pass
 
 
 # =============================================================================

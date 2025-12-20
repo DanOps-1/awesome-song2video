@@ -57,12 +57,14 @@ class CLIPEmbedder:
 
         try:
             logger.info("clip.loading_model", model=self.model_name)
-            self.model, _, self.preprocess = open_clip.create_model_and_transforms(
+            model, _, preprocess = open_clip.create_model_and_transforms(
                 self.model_name, pretrained=self.pretrained
             )
+            self.model = model
+            self.preprocess = preprocess
             self.tokenizer = open_clip.get_tokenizer(self.model_name)
-            self.model.to(self.device)
-            self.model.eval()
+            model.to(self.device)
+            model.eval()
             logger.info("clip.model_loaded", device=self.device)
         except Exception as e:
             logger.error("clip.load_failed", error=str(e))
@@ -72,7 +74,7 @@ class CLIPEmbedder:
         """L2 归一化"""
         norm = np.linalg.norm(vec)
         if norm > 0:
-            return vec / norm
+            return np.asarray(vec / norm)
         return vec
 
     def embed_shot(self, frames: np.ndarray) -> np.ndarray:
@@ -90,6 +92,8 @@ class CLIPEmbedder:
         from PIL import Image
 
         self.load_model()
+        assert self.model is not None
+        assert self.preprocess is not None
 
         try:
             frame_embeddings = []
@@ -127,6 +131,8 @@ class CLIPEmbedder:
         import torch
 
         self.load_model()
+        assert self.model is not None
+        assert self.tokenizer is not None
 
         try:
             text_tokens = self.tokenizer([text]).to(self.device)

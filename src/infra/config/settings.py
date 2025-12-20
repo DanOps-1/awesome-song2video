@@ -85,7 +85,9 @@ class AppSettings(BaseSettings):
 
     # 节拍卡点功能配置
     beat_sync_enabled: bool = True  # 是否启用卡点功能
-    beat_sync_mode: Literal["action", "onset"] = "onset"  # 对齐模式: action=动作高光, onset=鼓点对齐(类似剪映)
+    beat_sync_mode: Literal["action", "onset"] = (
+        "onset"  # 对齐模式: action=动作高光, onset=鼓点对齐(类似剪映)
+    )
     beat_sync_max_adjustment_ms: int = 500  # 最大调整偏移（毫秒）
     beat_sync_action_weight: float = 0.6  # 动作分数权重（action 模式）
     beat_sync_beat_weight: float = 0.4  # 节拍分数权重（action 模式）
@@ -96,7 +98,9 @@ class AppSettings(BaseSettings):
 
     # 视频片头片尾过滤配置
     video_intro_skip_ms: int = 12000  # 跳过视频开头的毫秒数（Tom & Jerry 片头约 10-15 秒）
-    video_outro_skip_ms: int = 8000  # 跳过视频结尾的毫秒数（过滤片尾 Credits 如 "Produced by Chuck Jones"）
+    video_outro_skip_ms: int = (
+        8000  # 跳过视频结尾的毫秒数（过滤片尾 Credits 如 "Produced by Chuck Jones"）
+    )
 
     # 候选片段最低分数阈值（低于此分数的片段将被过滤）
     candidate_min_score: float = 0.5  # 过滤掉分数过低的候选，提高到 0.5

@@ -11,8 +11,18 @@ logger = structlog.get_logger(__name__)
 
 # 角色名称关键词（用于验证查询是否包含 Tom & Jerry 角色）
 CHARACTER_KEYWORDS = [
-    "tom", "jerry", "cat", "mouse", "kitten", "kitty",
-    "feline", "rodent", "tabby", "猫", "鼠", "老鼠",
+    "tom",
+    "jerry",
+    "cat",
+    "mouse",
+    "kitten",
+    "kitty",
+    "feline",
+    "rodent",
+    "tabby",
+    "猫",
+    "鼠",
+    "老鼠",
 ]
 
 

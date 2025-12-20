@@ -64,9 +64,7 @@ class BeatAligner:
             else settings.beat_sync_max_adjustment_ms
         )
         self.action_weight = (
-            action_weight
-            if action_weight is not None
-            else settings.beat_sync_action_weight
+            action_weight if action_weight is not None else settings.beat_sync_action_weight
         )
         self.beat_weight = (
             beat_weight if beat_weight is not None else settings.beat_sync_beat_weight
@@ -147,8 +145,7 @@ class BeatAligner:
                 best_action = min(
                     actions_in_clip,
                     key=lambda ap: abs(
-                        (ap.timestamp_ms - clip_start_ms)
-                        - (target_beat_ms - lyric_start_ms)
+                        (ap.timestamp_ms - clip_start_ms) - (target_beat_ms - lyric_start_ms)
                     ),
                 )
                 best_action_ms = best_action.timestamp_ms
@@ -170,15 +167,11 @@ class BeatAligner:
                 )
 
                 # 动作分数 = 动作置信度 * 对齐精度
-                alignment_precision = 1.0 - (
-                    abs(suggested_offset) / self.max_adjustment_ms
-                )
+                alignment_precision = 1.0 - (abs(suggested_offset) / self.max_adjustment_ms)
                 action_score = best_action.confidence * alignment_precision
 
         # 综合评分
-        alignment_bonus = (
-            self.action_weight * action_score + self.beat_weight * beat_score
-        )
+        alignment_bonus = self.action_weight * action_score + self.beat_weight * beat_score
 
         # 最终分数 = 原始分数 * 0.7 + 对齐加成 * 0.3
         final_score = original_score * 0.7 + alignment_bonus * 0.3
@@ -195,9 +188,7 @@ class BeatAligner:
                 "alignment_bonus": alignment_bonus,
                 "clip_start_ms": clip_start_ms,
                 "clip_end_ms": clip_end_ms,
-                "actions_found": (
-                    len(video_profile.action_points) if video_profile else 0
-                ),
+                "actions_found": (len(video_profile.action_points) if video_profile else 0),
             },
         )
 
@@ -283,7 +274,6 @@ class BeatAligner:
 
         return True
 
-
     async def calculate_onset_alignment(
         self,
         candidate: dict[str, Any],
@@ -314,9 +304,7 @@ class BeatAligner:
         original_score = float(candidate.get("score", 0.0))
 
         # 获取歌词时间段内的音乐鼓点（相对时间）
-        music_onsets_relative = get_relative_onsets(
-            music_onsets, lyric_start_ms, lyric_end_ms
-        )
+        music_onsets_relative = get_relative_onsets(music_onsets, lyric_start_ms, lyric_end_ms)
 
         if not music_onsets_relative:
             logger.debug(
@@ -346,9 +334,7 @@ class BeatAligner:
                     end_ms=clip_end_ms,
                 )
                 # 转换为相对时间（相对于 clip_start_ms）
-                video_onsets_relative = [
-                    t - clip_start_ms for t in video_onsets.onset_times_ms
-                ]
+                video_onsets_relative = [t - clip_start_ms for t in video_onsets.onset_times_ms]
             except Exception as exc:
                 logger.warning(
                     "beat_aligner.video_onset_extraction_failed",

@@ -9,6 +9,7 @@ async def test_create_mix_and_trigger_generation(app_client: AsyncClient) -> Non
     payload: dict[str, Any] = {
         "song_title": "示例歌曲",
         "source_type": "upload",
+        "audio_asset_id": "test-audio-id",  # 必须提供音频文件ID
         "lyrics_text": "第一句\n第二句",
         "language": "zh",
         "auto_generate": True,
