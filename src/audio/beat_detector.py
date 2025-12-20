@@ -237,13 +237,13 @@ def _calculate_tempo_stability(beat_times_ms: list[int]) -> float:
         return 0.0
 
     # 变异系数 = 标准差 / 平均值
-    cv = np.std(intervals) / mean_interval
+    cv = float(np.std(intervals) / mean_interval)
 
     # 转换为稳定性分数（变异系数越小越稳定）
     # cv=0 -> stability=1, cv>=1 -> stability~0
     stability = max(0.0, 1.0 - cv)
 
-    return float(stability)
+    return stability
 
 
 def get_beat_at_index(beats: BeatAnalysisResult, index: int) -> int | None:
