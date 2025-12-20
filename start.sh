@@ -55,7 +55,7 @@ fi
 # [1/5] 启动后端
 echo ""
 echo "[1/5] 启动后端 (端口 8000)..."
-nohup .venv/bin/uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
+nohup uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
 
@@ -75,13 +75,13 @@ done
 
 # [2/5] 启动 Timeline Worker（歌词识别、视频匹配）
 echo "[2/5] 启动 Timeline Worker..."
-nohup .venv/bin/arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
+nohup uv run arq src.workers.timeline_worker.WorkerSettings > logs/timeline_worker.log 2>&1 &
 TIMELINE_PID=$!
 echo "Timeline Worker PID: $TIMELINE_PID"
 
 # [3/5] 启动 Render Worker（视频渲染）
 echo "[3/5] 启动 Render Worker..."
-nohup .venv/bin/arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
+nohup uv run arq src.workers.render_worker.WorkerSettings > logs/render_worker.log 2>&1 &
 RENDER_PID=$!
 echo "Render Worker PID: $RENDER_PID"
 
