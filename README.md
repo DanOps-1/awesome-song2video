@@ -180,55 +180,35 @@
 
 ### 环境要求
 
-- Python >= 3.10
+- Python >= 3.11
 - Node.js >= 18
 - FFmpeg
 - Redis
 - (可选) MinIO
 
-### 方式一：Miniconda 安装（推荐）
+### 方式一：uv 安装（推荐）
 
 ```bash
 # 克隆项目
 git clone git@github.com:DanOps-1/awsome-song2video.git
 cd awsome-song2video
 
-# 安装 Miniconda（如未安装）
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh
+# 安装 uv（如未安装）
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 创建 conda 环境
-conda create -n song2video python=3.10 -y
-conda activate song2video
-
-# 安装后端依赖
-pip install -e ".[dev]"
+# 安装后端依赖（uv 会自动创建虚拟环境）
+uv sync
 
 # 安装前端依赖
-cd frontend && npm install && cd ..
-cd web && npm install && cd ..
+cd apps/frontend && npm install && cd ../..
+cd apps/web && npm install && cd ../..
+
+# 复制并配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填入必要的 API 密钥
 ```
 
-### 方式二：venv 虚拟环境安装
-
-```bash
-# 克隆项目
-git clone git@github.com:DanOps-1/awsome-song2video.git
-cd awsome-song2video
-
-# 创建虚拟环境
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# 安装后端依赖
-pip install -e ".[dev]"
-
-# 安装前端依赖
-cd frontend && npm install && cd ..
-cd web && npm install && cd ..
-```
-
-### 方式三：Docker 启动
+### 方式二：Docker 启动
 
 ```bash
 # 克隆项目
@@ -239,23 +219,64 @@ cd awsome-song2video
 cp .env.example .env
 # 编辑 .env 文件，填入必要的 API 密钥
 
-# 构建并启动
-docker-compose up --build
+# 构建并启动后端服务（API + Workers + PostgreSQL + Redis）
+docker compose up --build
 
 # 或后台运行
-docker-compose up -d --build
+docker compose up -d --build
 
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
+
+# 仅查看 API 日志
+docker compose logs -f api
 
 # 停止服务
-docker-compose down
+docker compose down
+
+# 停止并清理数据卷
+docker compose down -v
 ```
 
-**Docker 说明**：
-- 默认运行 `scripts/dev/run_audio_demo.py` 演示脚本
-- Whisper 模型会缓存到 Docker volume，避免重复下载
-- 如需运行 API 服务，修改 `docker-compose.yml` 中的 command
+**启动前端**（Docker 不包含前端，需单独启动）：
+
+```bash
+# 用户前端（端口 6008）
+cd apps/frontend && npm run dev -- --port 6008 --host 0.0.0.0
+
+# 管理后台（端口 6006）
+cd apps/web && npm run dev -- --port 6006 --host 0.0.0.0
+```
+
+**Docker 服务说明**：
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| `postgres` | 5432 | PostgreSQL 数据库 |
+| `redis` | 6379 | Redis 消息队列 |
+| `api` | 8000 | 后端 API 服务 |
+| `timeline-worker` | - | 歌词识别、视频匹配 |
+| `render-worker` | - | 视频渲染 |
+
+**特性**：
+- 使用 `uv` 管理 Python 依赖，构建更快
+- Whisper/HuggingFace 模型缓存到 Docker volume，避免重复下载
+- PostgreSQL 数据持久化到 Docker volume
+- 健康检查自动重启
+
+**GPU 加速**（可选）：
+
+如需启用 GPU 加速 Whisper 识别，编辑 `docker-compose.yml`，取消 `timeline-worker` 中 GPU 配置的注释：
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
 
 ### 配置
 
@@ -263,7 +284,7 @@ docker-compose down
 
 ```bash
 cp .env.example .env
-python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fallback 使用
+uv run python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fallback 使用
 ```
 
 必需的环境变量：
@@ -301,32 +322,26 @@ python scripts/media/create_placeholder_clip.py  # 生成占位片段，供 fall
 
 ```bash
 # 启动 API 服务（端口 8000）
-python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 
-# 启动渲染 Worker（可选，用于视频渲染）
-python -m src.workers.render_worker
+# 启动渲染 Worker（用于视频渲染）
+uv run arq src.workers.render_worker.WorkerSettings
 
-# 启动时间线生成 Worker（可选，用于异步任务）
-python -m src.workers.timeline_worker
+# 启动时间线生成 Worker（用于歌词识别和视频匹配）
+uv run arq src.workers.timeline_worker.WorkerSettings
 
 # 启动用户前端（端口 6008）
-cd frontend && npm run dev -- --port 6008 --host 0.0.0.0
+cd apps/frontend && npm run dev -- --port 6008 --host 0.0.0.0
 
 # 启动管理后台（端口 6006）
-cd web && npm run dev -- --port 6006 --host 0.0.0.0
+cd apps/web && npm run dev -- --port 6006 --host 0.0.0.0
 ```
 
-**后台运行（推荐）**：
+**一键启动**：
 
 ```bash
-# 后端 API
-python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload > /tmp/backend.log 2>&1 &
-
-# 用户前端
-cd frontend && npm run dev -- --port 6008 --host 0.0.0.0 > /tmp/user-frontend.log 2>&1 &
-
-# 管理后台
-cd web && npm run dev -- --port 6006 --host 0.0.0.0 > /tmp/admin-frontend.log 2>&1 &
+# 使用启动脚本（推荐）
+bash start.sh
 ```
 
 ### 访问地址
@@ -339,19 +354,19 @@ cd web && npm run dev -- --port 6006 --host 0.0.0.0 > /tmp/admin-frontend.log 2>
 
 ```bash
 # 运行端到端测试
-python scripts/dev/e2e_full_render_test.py
+uv run python scripts/dev/e2e_full_render_test.py
 
 # 查看 Preview Manifest
-python scripts/dev/run_audio_demo.py
+uv run python scripts/dev/run_audio_demo.py
 
 # 并行裁剪 + clip_stats 验证
-pytest tests/integration/render/test_parallel_clip_pipeline.py
+uv run pytest tests/integration/render/test_parallel_clip_pipeline.py
 
 # 占位片段回退链路
-pytest tests/integration/render/test_render_fallbacks.py
+uv run pytest tests/integration/render/test_render_fallbacks.py
 
 # 渲染配置 API 契约
-pytest tests/contract/api/test_render_config.py
+uv run pytest tests/contract/api/test_render_config.py
 ```
 
 ## API 文档
@@ -448,12 +463,12 @@ PATCH 成功会触发 Redis `render:config` 消息，渲染 Worker 会记录 `re
 ├── tests/                # 测试用例
 ├── docs/                 # 文档
 ├── scripts/              # 工具脚本
-├── deploy/               # 部署配置 (Docker)
-├── requirements/         # Python 依赖
-├── data/                 # 数据目录
 ├── media/                # 媒体文件
 ├── artifacts/            # 构建产物
-└── logs/                 # 运行日志
+├── logs/                 # 运行日志
+├── Dockerfile            # Docker 镜像配置
+├── docker-compose.yml    # Docker Compose 配置
+└── pyproject.toml        # Python 项目配置 (uv)
 ```
 
 ## 监控与可观测性
@@ -534,14 +549,14 @@ render_queue_depth
 
 ```bash
 # 代码格式化与检查
-ruff check src tests
-ruff format src tests
+uv run ruff check src tests
+uv run ruff format src tests
 
 # 类型检查
-mypy src
+uv run mypy src
 
 # 运行测试
-pytest tests/
+uv run pytest tests/
 ```
 
 ### 添加新功能

@@ -1,48 +1,70 @@
+# Git
+.git
+.gitignore
+
 # Python
-__pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
 .Python
-.venv/
-venv/
-ENV/
-env/
+.venv
+venv
+ENV
+.mypy_cache
+.pytest_cache
+.ruff_cache
+*.egg-info
+dist
+build
 
-# IDEs
-.vscode/
-.idea/
+# IDE
+.idea
+.vscode
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Project specific
-dev.db
-*.log
+# 项目特定
 logs/
 artifacts/
-.env.local
-.env.test
+*.log
+*.sqlite
+*.db
+dev.db
 
-# Git
-.git/
-.gitignore
-
-# Docker
-Dockerfile
-.dockerignore
-docker-compose.yml
-
-# Tests
-.pytest_cache/
-.coverage
+# 测试
+tests/
 htmlcov/
+.coverage
+coverage.xml
 
-# Temporary files
+# 文档和规格（不需要在容器中）
+docs/
+.specify/
+
+# 前端（单独构建）
+apps/
+frontend/
+web/
+
+# 临时文件
 *.tmp
-tmp/
-temp/
+*.temp
+.ipynb_checkpoints/
+
+# 环境变量（运行时挂载）
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+
+# 媒体文件（运行时挂载）
+media/audio/*
+media/video/*
+!media/fallback/
