@@ -1,0 +1,94 @@
+name: Bug 报告
+description: 报告一个 Bug 帮助我们改进
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交 Bug 报告！请尽量详细描述问题。
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 清晰简洁地描述这个 Bug
+      placeholder: 描述你遇到的问题...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 如何复现这个问题？
+      placeholder: |
+        1. 上传音频文件 '...'
+        2. 点击 '...'
+        3. 查看错误 '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望发生什么？
+      placeholder: 描述你期望的正确行为...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么？
+      placeholder: 描述实际发生的情况...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志/截图
+      description: 如有相关日志或截图，请粘贴在这里
+      placeholder: 粘贴日志或拖拽上传截图...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 影响组件
+      description: 这个 Bug 影响哪个组件？
+      options:
+        - 后端 API
+        - 用户前端
+        - 管理后台
+        - Timeline Worker
+        - Render Worker
+        - Docker/部署
+        - 其他
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本信息
+      description: 你使用的版本或 commit hash
+      placeholder: "例如: v0.5.0 或 abc1234"
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 运行环境信息
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Python: 3.11
+        - Docker: 24.0.0
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 问题讨论
+    url: https://github.com/DanOps-1/awesome-song2video/discussions
+    about: 有问题或想法？欢迎在 Discussions 讨论
+  - name: 查看文档
+    url: https://github.com/DanOps-1/awesome-song2video#readme
+    about: 先查看 README 文档，也许能找到答案
