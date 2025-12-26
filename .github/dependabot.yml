@@ -85,7 +85,7 @@ updates:
     commit-message:
       prefix: "chore(ci)"
 
-  # Docker 基础镜像
+  # Docker 基础镜像 (Dockerfile + docker-compose.yml)
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -98,25 +98,3 @@ updates:
       - "docker"
     commit-message:
       prefix: "chore(docker)"
-
-  # Docker Compose 镜像
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "Asia/Shanghai"
-    registries:
-      - docker-hub
-    labels:
-      - "dependencies"
-      - "docker"
-    commit-message:
-      prefix: "chore(docker)"
-
-registries:
-  docker-hub:
-    type: docker-registry
-    url: https://registry.hub.docker.com
-    replaces-base: true
