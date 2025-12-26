@@ -33,13 +33,14 @@ FROM base AS builder
 # 安装 uv 包管理器
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# 复制依赖配置
+# 复制依赖配置和源代码
 COPY pyproject.toml ./
+COPY src/ ./src/
 
 # 创建虚拟环境并安装依赖
 RUN uv venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
-RUN uv pip install -e ".[dev]"
+RUN uv pip install ".[dev]"
 
 # ==========================================
 # 运行阶段 - API 服务
