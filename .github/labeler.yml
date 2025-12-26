@@ -1,0 +1,62 @@
+# PR 自动标签配置
+# 根据修改的文件自动给 PR 添加标签
+# 文档: https://github.com/actions/labeler
+
+# 后端相关
+backend:
+  - changed-files:
+      - any-glob-to-any-file: 'src/**'
+
+# 用户前端
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/frontend/**'
+
+# 管理后台
+admin:
+  - changed-files:
+      - any-glob-to-any-file: 'apps/web/**'
+
+# CI/CD 配置
+ci:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**'
+
+# Docker 相关
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'Dockerfile'
+          - 'docker-compose.yml'
+          - '.dockerignore'
+
+# 文档
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+
+# 测试
+tests:
+  - changed-files:
+      - any-glob-to-any-file: 'tests/**'
+
+# 依赖更新
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pyproject.toml'
+          - 'requirements*.txt'
+          - '**/package.json'
+          - '**/package-lock.json'
+
+# 配置文件
+config:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.yml'
+          - '*.yaml'
+          - '*.toml'
+          - '*.json'
+          - '.env*'
