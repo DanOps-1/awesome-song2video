@@ -1,48 +1,59 @@
+# Git
+.git
+.gitignore
+
 # Python
-__pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
 .Python
-.venv/
-venv/
-ENV/
-env/
+.venv
+venv
+ENV
+.eggs
+*.egg-info
+*.egg
+.mypy_cache
+.pytest_cache
+.ruff_cache
 
-# IDEs
-.vscode/
-.idea/
+# Node.js (frontends)
+apps/*/node_modules
+apps/*/.next
+apps/*/dist
+apps/*/.turbo
+
+# IDE
+.idea
+.vscode
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Project specific
-dev.db
 *.log
-logs/
-artifacts/
-.env.local
-.env.test
-
-# Git
-.git/
-.gitignore
-
-# Docker
-Dockerfile
-.dockerignore
-docker-compose.yml
-
-# Tests
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Temporary files
 *.tmp
 tmp/
-temp/
+output/
+uploads/
+*.mp4
+*.mp3
+*.wav
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Tests
+tests/
+*.test.*
+coverage/
+
+# CI/CD
+.github/
+Makefile
