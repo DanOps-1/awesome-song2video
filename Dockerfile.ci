@@ -20,11 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 安装 uv
 RUN pip install --no-cache-dir uv
 
-# 复制依赖文件（不复制 uv.lock，让 uv 自动解析 CPU 版本的 PyTorch）
+# 复制依赖文件
 COPY pyproject.toml ./
 
-# 安装依赖
-RUN uv sync --no-install-project
+# 先安装 CPU 版 PyTorch，再安装其他依赖
+RUN uv venv && \
+    uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
+    uv sync --no-install-project
 
 # 复制项目代码（删除 uv.lock 避免安装 CUDA 版 PyTorch）
 COPY . .
