@@ -35,8 +35,8 @@ class AppSettings(BaseSettings):
     tl_confidence_threshold: float = 0.0  # 置信度阈值 (0.0-1.0)
     postgres_dsn: str
     redis_url: str
-    media_bucket: str
-    minio_endpoint: str
+    media_bucket: str = "lyrics-mix-media"
+    minio_endpoint: str = "localhost:9000"
     video_asset_dir: str = "media/video"
     audio_asset_dir: str = "media/audio"
     whisper_model_name: str = "large-v3"

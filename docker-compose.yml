@@ -1,117 +1,136 @@
-# Docker Compose 配置
-# 用于本地开发和测试环境
-
 services:
-  # ==========================================
-  # 基础设施服务
-  # ==========================================
+  # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
-    container_name: song2video-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-song2video}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-song2video}
-      POSTGRES_DB: ${POSTGRES_DB:-song2video}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    container_name: song2video_postgres
     ports:
       - "5432:5432"
+    environment:
+      POSTGRES_USER: song2video
+      POSTGRES_PASSWORD: song2video
+      POSTGRES_DB: lyrics_mix
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-song2video}"]
+      test: ["CMD-SHELL", "pg_isready -U song2video -d lyrics_mix"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
 
+  # Redis 服务
   redis:
     image: redis:7-alpine
-    container_name: song2video-redis
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
+    container_name: song2video_redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      retries: 3
 
-  # ==========================================
-  # 应用服务
-  # ==========================================
+  # 后端 API 服务
   api:
     build:
       context: .
-      target: api
-    container_name: song2video-api
-    environment:
-      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-song2video}:${POSTGRES_PASSWORD:-song2video}@postgres:5432/${POSTGRES_DB:-song2video}
-      - REDIS_URL=redis://redis:6379
-      - TL_API_KEY=${TL_API_KEY}
-      - TL_INDEX_ID=${TL_INDEX_ID}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - WHISPER_MODEL_NAME=${WHISPER_MODEL_NAME:-large-v3}
-    volumes:
-      - ./uploads:/app/uploads
-      - ./output:/app/output
+      dockerfile: Dockerfile
+    image: song2video:latest
+    container_name: song2video_api
     ports:
       - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  timeline-worker:
-    build:
-      context: .
-      target: timeline-worker
-    container_name: song2video-timeline-worker
-    environment:
-      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-song2video}:${POSTGRES_PASSWORD:-song2video}@postgres:5432/${POSTGRES_DB:-song2video}
-      - REDIS_URL=redis://redis:6379
-      - TL_API_KEY=${TL_API_KEY}
-      - TL_INDEX_ID=${TL_INDEX_ID}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - WHISPER_MODEL_NAME=${WHISPER_MODEL_NAME:-large-v3}
     volumes:
-      - ./uploads:/app/uploads
+      # 持久化数据目录
+      - ./logs:/app/logs
+      - ./artifacts:/app/artifacts
+      - ./media:/app/media
+      # 持久化模型缓存
       - whisper_cache:/root/.cache/whisper
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-
-  render-worker:
-    build:
-      context: .
-      target: render-worker
-    container_name: song2video-render-worker
+      - huggingface_cache:/root/.cache/huggingface
     environment:
-      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-song2video}:${POSTGRES_PASSWORD:-song2video}@postgres:5432/${POSTGRES_DB:-song2video}
-      - REDIS_URL=redis://redis:6379
-      - TL_API_KEY=${TL_API_KEY}
-      - TL_INDEX_ID=${TL_INDEX_ID}
-    volumes:
-      - ./uploads:/app/uploads
-      - ./output:/app/output
-      - ./tmp:/app/tmp
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_DSN=postgresql+asyncpg://song2video:song2video@postgres:5432/lyrics_mix
+      - ENABLE_ASYNC_QUEUE=true
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
+    command: uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
 
-# ==========================================
-# 数据卷
-# ==========================================
+  # Timeline Worker（歌词识别、视频匹配）
+  timeline-worker:
+    image: song2video:latest
+    container_name: song2video_timeline_worker
+    volumes:
+      - ./logs:/app/logs
+      - ./artifacts:/app/artifacts
+      - ./media:/app/media
+      - whisper_cache:/root/.cache/whisper
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_DSN=postgresql+asyncpg://song2video:song2video@postgres:5432/lyrics_mix
+      - ENABLE_ASYNC_QUEUE=true
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command: uv run arq src.workers.timeline_worker.WorkerSettings
+    # GPU 支持（可选，需要 NVIDIA 驱动）
+    # 如需启用 GPU 加速 Whisper，取消下面注释：
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Render Worker（视频渲染）
+  render-worker:
+    image: song2video:latest
+    container_name: song2video_render_worker
+    volumes:
+      - ./logs:/app/logs
+      - ./artifacts:/app/artifacts
+      - ./media:/app/media
+      - whisper_cache:/root/.cache/whisper
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_DSN=postgresql+asyncpg://song2video:song2video@postgres:5432/lyrics_mix
+      - ENABLE_ASYNC_QUEUE=true
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command: uv run arq src.workers.render_worker.WorkerSettings
+
 volumes:
   postgres_data:
   redis_data:
   whisper_cache:
+  huggingface_cache:

@@ -11,18 +11,14 @@ __pycache__
 .venv
 venv
 ENV
-.eggs
-*.egg-info
-*.egg
 .mypy_cache
 .pytest_cache
 .ruff_cache
-
-# Node.js (frontends)
-apps/*/node_modules
-apps/*/.next
-apps/*/dist
-apps/*/.turbo
+*.egg-info
+dist
+build
+.eggs
+*.egg
 
 # IDE
 .idea
@@ -34,26 +30,48 @@ apps/*/.turbo
 .DS_Store
 Thumbs.db
 
-# Project specific
+# 项目特定
+logs/
+artifacts/
 *.log
-*.tmp
-tmp/
-output/
-uploads/
-*.mp4
-*.mp3
-*.wav
+*.sqlite
+*.db
+dev.db
 
-# Documentation
+# 测试
+tests/
+htmlcov/
+.coverage
+coverage.xml
+
+# 文档和规格（不需要在容器中）
+docs/
+.specify/
 *.md
 !README.md
-docs/
 
-# Tests
-tests/
-*.test.*
-coverage/
+# 前端（单独构建）
+apps/
+frontend/
+web/
+node_modules/
+
+# 临时文件
+*.tmp
+*.temp
+tmp/
+output/
+.ipynb_checkpoints/
+
+# 环境变量（运行时挂载）
+.env
+.env.local
+.env.*.local
+
+# 媒体文件（运行时挂载）
+media/audio/*
+media/video/*
+!media/fallback/
 
 # CI/CD
 .github/
-Makefile
