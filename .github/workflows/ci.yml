@@ -135,3 +135,50 @@ jobs:
 
       - name: Build
         run: npx vite build
+
+  # ==========================================
+  # Docker Build Test
+  # ==========================================
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          push: false
+          tags: song2video-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Timeline Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: timeline-worker
+          push: false
+          tags: song2video-timeline-worker:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build Render Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: render-worker
+          push: false
+          tags: song2video-render-worker:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify images
+        run: |
+          docker images | grep song2video
+          echo "✅ All Docker images built successfully"
