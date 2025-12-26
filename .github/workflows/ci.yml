@@ -160,11 +160,12 @@ jobs:
           context: .
           file: Dockerfile.ci
           push: false
+          load: true
           tags: song2video:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Verify image
         run: |
-          docker images | grep song2video
+          docker images song2video
           echo "✅ Docker image built successfully"
