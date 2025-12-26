@@ -26,10 +26,11 @@ COPY pyproject.toml ./
 # 安装依赖
 RUN uv sync --no-install-project
 
-# 复制项目代码
+# 复制项目代码（删除 uv.lock 避免安装 CUDA 版 PyTorch）
 COPY . .
+RUN rm -f uv.lock
 
-# 安装项目本身
+# 安装项目本身（重新解析依赖，自动选择 CPU 版 PyTorch）
 RUN uv sync
 
 # 创建必要的目录
