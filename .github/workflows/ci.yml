@@ -145,13 +145,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build Docker image (CI lightweight)
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.ci
           push: false
           tags: song2video:test
           cache-from: type=gha
