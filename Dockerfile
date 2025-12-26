@@ -3,7 +3,7 @@
 # ==========================================
 # 基础镜像 - Python 3.11
 # ==========================================
-FROM python:3.11-slim AS base
+FROM python:3.14-slim AS base
 
 # 防止 Python 生成 .pyc 文件和缓冲输出
 ENV PYTHONDONTWRITEBYTECODE=1 \
