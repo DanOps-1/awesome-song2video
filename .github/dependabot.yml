@@ -13,13 +13,9 @@ updates:
       time: "09:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "python"
     commit-message:
       prefix: "chore(deps)"
     groups:
-      # 将小更新分组，减少 PR 数量
       python-minor:
         patterns:
           - "*"
@@ -36,9 +32,6 @@ updates:
       time: "09:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "frontend"
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -58,9 +51,6 @@ updates:
       time: "09:00"
       timezone: "Asia/Shanghai"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "admin"
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -79,9 +69,6 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Shanghai"
-    labels:
-      - "dependencies"
-      - "ci"
     commit-message:
       prefix: "chore(ci)"
 
@@ -93,8 +80,5 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Shanghai"
-    labels:
-      - "dependencies"
-      - "docker"
     commit-message:
       prefix: "chore(docker)"
