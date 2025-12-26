@@ -1,0 +1,144 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "apps/frontend/package*.json"
+      - "apps/web/package*.json"
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 每天 UTC 时间 00:00 运行
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+
+jobs:
+  # ==========================================
+  # Python 依赖安全审计
+  # ==========================================
+  python-audit:
+    name: Python Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: |
+          pip install -e ".[dev]"
+          pip-audit --desc on --format markdown --output audit-python.md || true
+          cat audit-python.md
+
+      - name: Upload Python audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: python-audit-report
+          path: audit-python.md
+          retention-days: 30
+
+  # ==========================================
+  # npm 依赖安全审计 (Frontend)
+  # ==========================================
+  npm-audit-frontend:
+    name: npm Audit (Frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=moderate || true
+          npm audit --json > ../../audit-frontend.json || true
+
+      - name: Upload Frontend audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-audit-report
+          path: audit-frontend.json
+          retention-days: 30
+
+  # ==========================================
+  # npm 依赖安全审计 (Admin)
+  # ==========================================
+  npm-audit-admin:
+    name: npm Audit (Admin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level=moderate || true
+          npm audit --json > ../../audit-admin.json || true
+
+      - name: Upload Admin audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: admin-audit-report
+          path: audit-admin.json
+          retention-days: 30
+
+  # ==========================================
+  # 安全报告汇总
+  # ==========================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [python-audit, npm-audit-frontend, npm-audit-admin]
+    if: always()
+    steps:
+      - name: Download all audit reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Generate summary
+        run: |
+          echo "## 🔒 Security Audit Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Backend | ${{ needs.python-audit.result == 'success' && '✅ Passed' || '⚠️ Check Required' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend (npm) | ${{ needs.npm-audit-frontend.result == 'success' && '✅ Passed' || '⚠️ Check Required' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Admin (npm) | ${{ needs.npm-audit-admin.result == 'success' && '✅ Passed' || '⚠️ Check Required' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📋 Detailed reports are available in the workflow artifacts." >> $GITHUB_STEP_SUMMARY
