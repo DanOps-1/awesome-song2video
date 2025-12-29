@@ -32,6 +32,7 @@ import {
   getPreview,
   submitRender,
   lockLine,
+  lockAllLines,
   getMixStatus,
   updateLine,
   confirmLyrics,
@@ -113,6 +114,10 @@ export default function Status() {
     mutationFn: ({ lineId, segmentId }: { lineId: string; segmentId: string }) => lockLine(mixId!, lineId, segmentId),
     onSuccess: () => setTimeout(() => queryClient.invalidateQueries({ queryKey: ['lines', mixId] }), 100)
   })
+  const lockAllMutation = useMutation({
+    mutationFn: () => lockAllLines(mixId!, candidateLines),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['lines', mixId] }); messageApi.success('已全部确认'); }
+  })
   const renderMutation = useMutation({
     mutationFn: () => submitRender(mixId!, { bilingual_subtitle: bilingualSubtitle }),
     onSuccess: (data) => { sessionStorage.setItem(`job_${mixId}`, data.job_id); navigate(`/result/${mixId}`); }
@@ -133,7 +138,7 @@ export default function Status() {
   if (mixLoading) return <div className="h-screen flex items-center justify-center"><Spin size="large" tip="加载中..." /></div>
   
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8">
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 pr-6">
       {contextHolder}
       <div className="flex items-center justify-between mb-8">
         <Link to="/" className="text-white/50 hover:text-white transition-colors flex items-center gap-2">
@@ -291,8 +296,8 @@ export default function Status() {
             <div className="glass rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 sticky top-4 z-20 backdrop-blur-xl">
                <div className="flex items-center gap-4">
                   <span className="text-white/70">已确认: <span className="text-violet-400 font-bold">{candidateLines.filter((l:any) => l.status === 'locked').length}</span> / {candidateLines.length}</span>
-                  <Checkbox 
-                    checked={bilingualSubtitle} 
+                  <Checkbox
+                    checked={bilingualSubtitle}
                     onChange={e => setBilingualSubtitle(e.target.checked)}
                     className="text-white/80"
                   >
@@ -300,10 +305,26 @@ export default function Status() {
                   </Checkbox>
                </div>
                <div className="flex gap-3">
-                  <Button icon={<ReloadOutlined />} onClick={() => matchVideosMutation.mutate()} loading={matchVideosMutation.isPending} ghost>重试</Button>
-                  <Button 
-                    type="primary" 
-                    icon={<PlayCircleFilled />} 
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => matchVideosMutation.mutate()}
+                    loading={matchVideosMutation.isPending}
+                    className="border-orange-500 text-orange-400 hover:bg-orange-500/10"
+                  >
+                    重试匹配
+                  </Button>
+                  <Button
+                    icon={<CheckCircleFilled />}
+                    onClick={() => lockAllMutation.mutate()}
+                    loading={lockAllMutation.isPending}
+                    disabled={candidateLines.every((l:any) => l.status === 'locked')}
+                    className="border-green-500 text-green-400 hover:bg-green-500/10"
+                  >
+                    全部确认
+                  </Button>
+                  <Button
+                    type="primary"
+                    icon={<PlayCircleFilled />}
                     onClick={() => renderMutation.mutate()}
                     loading={renderMutation.isPending}
                     disabled={candidateLines.some((l:any) => l.status !== 'locked')}

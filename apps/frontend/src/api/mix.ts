@@ -172,6 +172,23 @@ export async function lockLine(
   return data
 }
 
+/**
+ * 批量锁定所有未锁定的行（选择每行的第一个候选项）
+ */
+export async function lockAllLines(
+  mixId: string,
+  lines: LineInfo[]
+): Promise<void> {
+  const unlockedLines = lines.filter(
+    (line) => line.status !== 'locked' && line.candidates.length > 0
+  )
+  await Promise.all(
+    unlockedLines.map((line) =>
+      lockLine(mixId, line.id, line.candidates[0].id)
+    )
+  )
+}
+
 export interface UploadResponse {
   id: string
   filename: string
