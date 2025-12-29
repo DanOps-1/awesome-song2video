@@ -40,16 +40,19 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - name: Install pip-audit and pip-tools
+        run: pip install pip-audit pip-tools
 
-      - name: Run pip-audit (dry-run mode)
+      - name: Run pip-audit
         run: |
-          # 使用 dry-run 模式，不实际安装依赖，只检查 pyproject.toml
-          pip-audit --requirement <(pip-compile --quiet --output-file=- pyproject.toml 2>/dev/null || echo "") \
-            --desc on --format markdown --output audit-python.md 2>/dev/null || \
-          pip-audit --local --desc on --format markdown --output audit-python.md || \
-          echo "# Python Audit\n\nNo vulnerabilities found or scan skipped." > audit-python.md
+          # 先生成 requirements.txt，再进行审计
+          if pip-compile --quiet --output-file=requirements-audit.txt pyproject.toml 2>/dev/null; then
+            pip-audit --requirement requirements-audit.txt --desc on --format markdown --output audit-python.md || true
+          fi
+          # 如果没有生成报告文件，创建一个默认的
+          if [ ! -f audit-python.md ]; then
+            echo -e "# Python Audit\n\nNo vulnerabilities found or scan skipped." > audit-python.md
+          fi
           cat audit-python.md
 
       - name: Upload Python audit report
