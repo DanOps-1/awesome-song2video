@@ -22,16 +22,16 @@ def _create_rewriter_disabled() -> QueryRewriter:
 class TestContainsCharacter:
     """测试 _contains_character 方法。"""
 
-    def test_detects_tom(self) -> None:
-        """测试检测 Tom。"""
+    def test_detects_cat(self) -> None:
+        """测试检测 cat。"""
         rewriter = _create_rewriter_disabled()
-        assert rewriter._contains_character("Tom is chasing Jerry") is True
-        assert rewriter._contains_character("tom running") is True
+        assert rewriter._contains_character("cat is chasing mouse") is True
+        assert rewriter._contains_character("Cat running") is True
 
-    def test_detects_jerry(self) -> None:
-        """测试检测 Jerry。"""
+    def test_detects_mouse(self) -> None:
+        """测试检测 mouse。"""
         rewriter = _create_rewriter_disabled()
-        assert rewriter._contains_character("Jerry escaping") is True
+        assert rewriter._contains_character("mouse escaping") is True
 
     def test_detects_cat_keywords(self) -> None:
         """测试检测猫相关关键词。"""
@@ -65,7 +65,7 @@ class TestEnsureCharacterInQuery:
     def test_returns_unchanged_if_has_character(self) -> None:
         """测试已包含角色时不修改。"""
         rewriter = _create_rewriter_disabled()
-        query = "Tom chasing something"
+        query = "cat chasing something"
         result = rewriter._ensure_character_in_query(query)
         assert result == query
 
@@ -74,7 +74,7 @@ class TestEnsureCharacterInQuery:
         rewriter = _create_rewriter_disabled()
         query = "sunset scene"
         result = rewriter._ensure_character_in_query(query)
-        assert result == "Tom and Jerry sunset scene"
+        assert result == "cat and mouse sunset scene"
 
     def test_preserves_original_content(self) -> None:
         """测试保留原始内容。"""
