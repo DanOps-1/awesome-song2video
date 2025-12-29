@@ -1,14 +1,18 @@
 name: Security Audit
 
 on:
-  # 手动触发，避免私有仓库消耗 Actions 分钟数
+  push:
+    branches: [main, develop]
+    paths:
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "apps/frontend/package*.json"
+      - "apps/web/package*.json"
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 0 * * *"
   workflow_dispatch:
-    inputs:
-      run_audit:
-        description: 'Run security audit'
-        required: false
-        default: true
-        type: boolean
 
 env:
   PYTHON_VERSION: "3.11"

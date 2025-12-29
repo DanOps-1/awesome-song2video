@@ -1,14 +1,10 @@
 name: CI
 
 on:
-  # 手动触发，避免私有仓库消耗 Actions 分钟数
-  workflow_dispatch:
-    inputs:
-      run_all:
-        description: 'Run all checks'
-        required: false
-        default: true
-        type: boolean
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
 
 env:
   PYTHON_VERSION: "3.11"
