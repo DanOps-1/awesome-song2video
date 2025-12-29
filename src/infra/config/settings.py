@@ -97,7 +97,7 @@ class AppSettings(BaseSettings):
     beat_sync_scene_threshold: float = 0.3  # FFmpeg 场景检测阈值
 
     # 视频片头片尾过滤配置
-    video_intro_skip_ms: int = 12000  # 跳过视频开头的毫秒数（Tom & Jerry 片头约 10-15 秒）
+    video_intro_skip_ms: int = 12000  # 跳过视频开头的毫秒数（卡通片头约 10-15 秒）
     video_outro_skip_ms: int = (
         8000  # 跳过视频结尾的毫秒数（过滤片尾 Credits 如 "Produced by Chuck Jones"）
     )

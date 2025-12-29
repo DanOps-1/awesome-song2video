@@ -9,10 +9,8 @@ from src.infra.config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
 
-# 角色名称关键词（用于验证查询是否包含 Tom & Jerry 角色）
+# 角色名称关键词（用于验证查询是否包含猫鼠角色）
 CHARACTER_KEYWORDS = [
-    "tom",
-    "jerry",
     "cat",
     "mouse",
     "kitten",
@@ -55,7 +53,7 @@ class QueryRewriter:
             )
 
     def _contains_character(self, query: str) -> bool:
-        """检查查询是否包含 Tom & Jerry 角色关键词"""
+        """检查查询是否包含猫鼠角色关键词"""
         query_lower = query.lower()
         for keyword in CHARACTER_KEYWORDS:
             if keyword in query_lower:
@@ -66,19 +64,19 @@ class QueryRewriter:
         """
         确保查询包含角色名称。
 
-        如果查询不包含任何角色关键词，在前面添加 "Tom and Jerry"。
+        如果查询不包含任何角色关键词，在前面添加 "cat and mouse"。
         这样可以确保 TwelveLabs 搜索结果更可能包含主角。
         """
         if self._contains_character(query):
             return query
 
-        # 不包含角色名称，添加 "Tom and Jerry" 前缀
-        fixed_query = f"Tom and Jerry {query}"
+        # 不包含角色名称，添加 "cat and mouse" 前缀
+        fixed_query = f"cat and mouse {query}"
         logger.info(
             "query_rewriter.character_added",
             original=query,
             fixed=fixed_query,
-            message="查询缺少角色名称，已添加 'Tom and Jerry' 前缀",
+            message="查询缺少角色名称，已添加 'cat and mouse' 前缀",
         )
         return fixed_query
 
@@ -112,7 +110,7 @@ class QueryRewriter:
         try:
             rewritten = await self._call_llm(original_query, attempt)
 
-            # 🎬 强制角色验证：确保查询包含 Tom/Jerry 角色
+            # 🎬 强制角色验证：确保查询包含 cat/mouse 角色
             rewritten = self._ensure_character_in_query(rewritten)
 
             self._cache[cache_key] = rewritten
@@ -171,17 +169,17 @@ class QueryRewriter:
         """
         返回统一的改写策略 prompt。
 
-        专门针对 Tom and Jerry 卡通素材库优化。
-        核心原则：输出必须包含角色（Tom/Jerry/cat/mouse），禁止纯物品/场景描述。
+        专门针对猫鼠卡通素材库优化。
+        核心原则：输出必须包含角色（cat/mouse），禁止纯物品/场景描述。
         """
 
         # 统一策略：角色优先 + 动作/表情 + 简洁输出 + 拟声词智能处理
-        return """You are a video search query optimizer for a Tom and Jerry cartoon library.
+        return """You are a video search query optimizer for a cat and mouse cartoon library.
 
-Your task: Convert song lyrics into **character action descriptions** for Tom and Jerry clips.
+Your task: Convert song lyrics into **character action descriptions** for cat and mouse clips.
 
 **CRITICAL RULES - MUST FOLLOW:**
-1. Output MUST contain a CHARACTER: "Tom", "Jerry", "cat", or "mouse"
+1. Output MUST contain a CHARACTER: "cat" or "mouse"
 2. Output MUST contain an ACTION or EXPRESSION
 3. NEVER output objects only (NO: "perfume bottle", "stage", "gifts", "electricity")
 4. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
@@ -190,49 +188,49 @@ Your task: Convert song lyrics into **character action descriptions** for Tom an
 7. Understand the EMOTIONAL/METAPHORICAL meaning, NOT literal meaning
 
 **METAPHORICAL LYRICS - Understand the emotion, not literal words:**
-- "counting stars" = romantic/dreamy/hopeful → "Tom Jerry looking up dreamy" (NOT counting objects!)
-- "losing sleep" = worried/anxious → "Tom tossing turning worried" (NOT just sleeping)
-- "praying hard" = hoping/wishing → "Tom hands together wishing" (NOT religious scene)
-- "sold" = betrayed/lost hope → "Tom sad disappointed"
-- "doing the right thing" = moral struggle → "Tom conflicted thinking"
-- "fire inside" = passion/anger → "Tom fierce determined" (NOT literal fire)
-- "heart on fire" = love/passion → "Tom love-struck dreamy" (NOT burning)
+- "counting stars" = romantic/dreamy/hopeful → "cat mouse looking up dreamy" (NOT counting objects!)
+- "losing sleep" = worried/anxious → "cat tossing turning worried" (NOT just sleeping)
+- "praying hard" = hoping/wishing → "cat hands together wishing" (NOT religious scene)
+- "sold" = betrayed/lost hope → "cat sad disappointed"
+- "doing the right thing" = moral struggle → "cat conflicted thinking"
+- "fire inside" = passion/anger → "cat fierce determined" (NOT literal fire)
+- "heart on fire" = love/passion → "cat love-struck dreamy" (NOT burning)
 
 **SPECIAL RULE FOR INTERJECTIONS/ONOMATOPOEIA:**
 Some lyrics contain interjections or sound effects. Handle them intelligently:
 
 1. **Meaningful sound effects** (keep the meaning!):
-   - "oww/howl/awoo" (wolf howl) → "Tom howling like wolf"
-   - "roar/grr" (growl) → "Tom growling fierce"
-   - "meow/purr" → "Tom meowing"
-   - "boom/bang/crash" → "Tom crashing explosion"
-   - "splash" → "Tom falling into water"
+   - "oww/howl/awoo" (wolf howl) → "cat howling like wolf"
+   - "roar/grr" (growl) → "cat growling fierce"
+   - "meow/purr" → "cat meowing"
+   - "boom/bang/crash" → "cat crashing explosion"
+   - "splash" → "cat falling into water"
 
 2. **Pure filler interjections** (convert to high-energy action):
-   - "yeah/oh/ah/hey" alone → "Tom jumping excited"
-   - "la la la/na na na" alone → "Jerry dancing happy"
+   - "yeah/oh/ah/hey" alone → "cat jumping excited"
+   - "la la la/na na na" alone → "mouse dancing happy"
 
 3. **Mixed lyrics with interjections** (focus on the semantic content):
-   - "Just like animals oww" → "Tom howling like wild animal" (oww = wolf howl, keep it!)
-   - "Hunt you down yeah yeah" → "Terry aggressively" (yeah = filler, ignore)
+   - "Just like animals oww" → "cat howling like wild animal" (oww = wolf howl, keep it!)
+   - "Hunt you down yeah yeah" → "cat chasing aggressively" (yeah = filler, ignore)
 
 **GOOD Examples:**
-"Baby I'm preying on you tonight" → "Tom stalking Jerry"
-"Hunt you down eat you alive" → "Tom chasing Jerry aggressively"
-"Just like animals oww" → "Tom howling like wild animal"
-"animals-mals yeah oww" → "Tom howling fiercely"
-"Yeah yeah yeah" (alone) → "Tom jumping excited"
-"Oh oh oh~" (alone) → "Jerry running fast"
-"啊啊啊" (alone) → "Tom screaming shocked"
-"啦啦啦" (alone) → "Jerry dancing happy"
-"Whoa~" → "Tom surprised face"
-"嘿嘿嘿" → "Tom sneaking mischievous"
-"Roar!" → "Tom roaring fierce"
-"Meow~" → "Tom meowing cute"
-"Counting stars" → "Tom Jerry looking up night sky dreamy"
-"Losing sleep" → "Tom restless worried"
-"Praying hard" → "Tom wishing hoping"
-"Dreaming about" → "Tom daydreaming happy"
+"Baby I'm preying on you tonight" → "cat stalking mouse"
+"Hunt you down eat you alive" → "cat chasing mouse aggressively"
+"Just like animals oww" → "cat howling like wild animal"
+"animals-mals yeah oww" → "cat howling fiercely"
+"Yeah yeah yeah" (alone) → "cat jumping excited"
+"Oh oh oh~" (alone) → "mouse running fast"
+"啊啊啊" (alone) → "cat screaming shocked"
+"啦啦啦" (alone) → "mouse dancing happy"
+"Whoa~" → "cat surprised face"
+"嘿嘿嘿" → "cat sneaking mischievous"
+"Roar!" → "cat roaring fierce"
+"Meow~" → "cat meowing cute"
+"Counting stars" → "cat mouse looking up night sky dreamy"
+"Losing sleep" → "cat restless worried"
+"Praying hard" → "cat wishing hoping"
+"Dreaming about" → "cat daydreaming happy"
 
 **BAD Examples (NEVER output like this):**
 "I can smell your scent" → ❌ "perfume bottles on table"
