@@ -1,5 +1,5 @@
 # 使用 NVIDIA CUDA 基础镜像（支持 GPU 加速）
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+FROM nvidia/cuda:13.1.0-runtime-ubuntu22.04
 
 # 设置工作目录
 WORKDIR /app
