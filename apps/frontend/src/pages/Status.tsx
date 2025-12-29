@@ -373,27 +373,42 @@ export default function Status() {
                                      >
                                         <div className="aspect-video bg-black relative">
                                            {previewingCandidate?.candidateId === cand.id ? (
-                                              <video 
-                                                src={getCandidatePreviewUrl(mixId!, line.id, cand.id)} 
-                                                autoPlay 
-                                                loop 
-                                                muted 
-                                                className="w-full h-full object-cover" 
+                                              <video
+                                                src={getCandidatePreviewUrl(mixId!, line.id, cand.id)}
+                                                autoPlay
+                                                loop
+                                                muted
+                                                playsInline
+                                                className="w-full h-full object-cover"
+                                                onError={(e) => {
+                                                  console.error('视频加载失败:', e);
+                                                  setPreviewingCandidate(null);
+                                                  messageApi.error('视频预览加载失败');
+                                                }}
                                               />
                                            ) : (
-                                              <div className="w-full h-full bg-gray-900 flex items-center justify-center">
-                                                 <VideoCameraOutlined className="text-2xl text-white/20" />
+                                              <div
+                                                className="w-full h-full bg-gray-900 flex items-center justify-center cursor-pointer hover:bg-gray-800 transition-colors"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setPreviewingCandidate({ lineId: line.id, candidateId: cand.id });
+                                                }}
+                                              >
+                                                 <PlayCircleFilled className="text-3xl text-white/40 hover:text-white/80 transition-colors" />
                                               </div>
                                            )}
-                                           
-                                           {/* Hover Play Overlay */}
-                                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                              <Button 
-                                                shape="circle" 
-                                                icon={<PlayCircleFilled />} 
-                                                onClick={(e) => { e.stopPropagation(); setPreviewingCandidate({ lineId: line.id, candidateId: cand.id }) }}
-                                              />
-                                           </div>
+
+                                           {/* 播放中显示停止按钮 */}
+                                           {previewingCandidate?.candidateId === cand.id && (
+                                              <div
+                                                className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                                                onClick={(e) => { e.stopPropagation(); setPreviewingCandidate(null); }}
+                                              >
+                                                 <div className="bg-black/60 rounded-full p-2">
+                                                    <CloseOutlined className="text-white text-lg" />
+                                                 </div>
+                                              </div>
+                                           )}
                                         </div>
                                         
                                         <div className="p-2 bg-gray-900/90 text-xs text-white/70 flex justify-between">
