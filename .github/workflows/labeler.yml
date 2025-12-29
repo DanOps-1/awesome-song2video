@@ -1,8 +1,8 @@
 name: PR Labeler
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  # 手动触发，避免私有仓库消耗 Actions 分钟数
+  workflow_dispatch:
 
 jobs:
   label:
