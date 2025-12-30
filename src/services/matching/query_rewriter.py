@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import structlog
 from openai import AsyncOpenAI
 
@@ -51,6 +53,13 @@ class QueryRewriter:
                 has_api_key=bool(self._api_key),
             )
 
+    def _replace_proper_nouns(self, query: str) -> str:
+        """强制替换 Tom/Jerry 等专有名词为通用词。"""
+        # 替换 Tom -> cat, Jerry -> mouse (大小写不敏感)
+        result = re.sub(r"\bTom\b", "cat", query, flags=re.IGNORECASE)
+        result = re.sub(r"\bJerry\b", "mouse", result, flags=re.IGNORECASE)
+        return result
+
     def _contains_character(self, query: str) -> bool:
         """检查查询是否包含猫鼠角色关键词"""
         query_lower = query.lower()
@@ -95,6 +104,9 @@ class QueryRewriter:
 
         try:
             rewritten = await self._call_llm(original_query, attempt)
+
+            # 🔧 强制替换 Tom/Jerry 为 cat/mouse（LLM 可能忽略 prompt 指令）
+            rewritten = self._replace_proper_nouns(rewritten)
 
             # 🎬 强制角色验证：确保查询包含 cat/mouse 角色
             rewritten = self._ensure_character_in_query(rewritten)
