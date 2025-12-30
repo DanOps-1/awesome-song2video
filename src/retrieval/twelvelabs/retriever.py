@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 import structlog
 
-from src.retrieval.protocol import VideoClip
-from src.services.matching.twelvelabs_client import TwelveLabsClient
-from src.services.matching.query_rewriter import QueryRewriter
 from src.infra.config.settings import get_settings
+from src.retrieval.protocol import VideoClip
+from src.services.matching.query_rewriter import QueryRewriter
+from src.services.matching.twelvelabs_client import TwelveLabsClient
 
 logger = structlog.get_logger(__name__)
 
@@ -32,8 +30,8 @@ class TwelveLabsRetriever:
         self,
         query: str,
         limit: int = 5,
-        duration_hint_ms: Optional[int] = None,
-    ) -> List[VideoClip]:
+        duration_hint_ms: int | None = None,
+    ) -> list[VideoClip]:
         """搜索视频片段
 
         Args:
@@ -105,8 +103,8 @@ class TwelveLabsRetriever:
     def _convert_results(
         self,
         raw_results: list[dict],
-        duration_hint_ms: Optional[int] = None,
-    ) -> List[VideoClip]:
+        duration_hint_ms: int | None = None,
+    ) -> list[VideoClip]:
         """转换原始结果为 VideoClip 格式"""
         clips = []
 

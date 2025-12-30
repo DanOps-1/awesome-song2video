@@ -17,9 +17,9 @@ from typing import Any
 import structlog
 from anyio import to_thread
 
+from src.domain.models.beat_sync import VideoActionCache
 from src.infra.config.settings import get_settings
 from src.infra.persistence.database import get_session
-from src.domain.models.beat_sync import VideoActionCache
 
 logger = structlog.get_logger(__name__)
 
@@ -184,7 +184,14 @@ class ActionDetector:
     async def _analyze_with_twelvelabs(self, video_id: str) -> VideoActionProfile | None:
         """使用 TwelveLabs Generate API 分析视频高光。"""
         try:
-            from twelvelabs import TwelveLabs
+            from twelvelabs import (
+                BadRequestError,
+                ForbiddenError,
+                InternalServerError,
+                NotFoundError,
+                TooManyRequestsError,
+                TwelveLabs,
+            )
 
             client = TwelveLabs(api_key=self._settings.tl_api_key)
 
@@ -233,11 +240,58 @@ class ActionDetector:
                 analysis_source="twelvelabs",
             )
 
+        except ForbiddenError as exc:
+            # 认证错误
+            logger.error(
+                "action_detector.twelvelabs_auth_error",
+                video_id=video_id,
+                error=str(exc),
+                error_type="ForbiddenError",
+            )
+            return None
+        except NotFoundError as exc:
+            # 视频不存在
+            logger.warning(
+                "action_detector.twelvelabs_video_not_found",
+                video_id=video_id,
+                error=str(exc),
+                error_type="NotFoundError",
+            )
+            return None
+        except BadRequestError as exc:
+            # 请求参数错误
+            logger.warning(
+                "action_detector.twelvelabs_bad_request",
+                video_id=video_id,
+                error=str(exc),
+                error_type="BadRequestError",
+            )
+            return None
+        except TooManyRequestsError as exc:
+            # 频率限制
+            logger.warning(
+                "action_detector.twelvelabs_rate_limit",
+                video_id=video_id,
+                error=str(exc),
+                error_type="TooManyRequestsError",
+            )
+            return None
+        except InternalServerError as exc:
+            # 服务端错误
+            logger.error(
+                "action_detector.twelvelabs_server_error",
+                video_id=video_id,
+                error=str(exc),
+                error_type="InternalServerError",
+            )
+            return None
         except Exception as exc:
+            # 其他错误（网络等）
             logger.warning(
                 "action_detector.twelvelabs_failed",
                 video_id=video_id,
                 error=str(exc),
+                error_type=type(exc).__name__,
             )
             return None
 
