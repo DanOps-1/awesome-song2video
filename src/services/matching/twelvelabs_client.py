@@ -10,7 +10,14 @@ from uuid import uuid4
 
 import structlog
 from anyio import to_thread
-from twelvelabs import TwelveLabs
+from twelvelabs import (
+    BadRequestError,
+    ForbiddenError,
+    InternalServerError,
+    NotFoundError,
+    TooManyRequestsError,
+    TwelveLabs,
+)
 
 from src.infra.config.settings import get_settings
 from src.infra.messaging.redis_pool import with_rate_limit
@@ -34,7 +41,7 @@ class TwelveLabsClient:
         self._settings = get_settings()
         self._live_enabled = self._settings.tl_live_enabled
         self._index_id = self._settings.tl_index_id
-        self._client: Any | None = None
+        self._client: TwelveLabs | None = None
         self._base_urls = self._build_base_url_chain()
         self._base_url_index = -1
 
@@ -117,10 +124,70 @@ class TwelveLabsClient:
                         action=_execute,
                     ),
                 )
+            except ForbiddenError as exc:
+                # 401/403: 认证或权限错误，不应重试
+                logger.error(
+                    "twelvelabs.auth_error",
+                    error=str(exc),
+                    error_type="ForbiddenError",
+                    base_url=self._current_base_url,
+                )
+                raise RuntimeError("TwelveLabs API 认证失败，请检查 API Key 配置") from exc
+            except TooManyRequestsError as exc:
+                # 429: 频率限制，记录并尝试 failover
+                logger.warning(
+                    "twelvelabs.rate_limit",
+                    error=str(exc),
+                    error_type="TooManyRequestsError",
+                    base_url=self._current_base_url,
+                    options=options,
+                )
+                if self._live_enabled and self._advance_client():
+                    logger.info("twelvelabs.client_failover", base_url=self._current_base_url)
+                    continue
+                return self._mock_results(query, limit)
+            except BadRequestError as exc:
+                # 400: 请求参数错误，记录警告并返回空结果
+                logger.warning(
+                    "twelvelabs.bad_request",
+                    error=str(exc),
+                    error_type="BadRequestError",
+                    query=query,
+                    options=options,
+                    base_url=self._current_base_url,
+                )
+                return []
+            except NotFoundError as exc:
+                # 404: 资源不存在，记录警告并返回空结果
+                logger.warning(
+                    "twelvelabs.not_found",
+                    error=str(exc),
+                    error_type="NotFoundError",
+                    index_id=self._index_id,
+                    base_url=self._current_base_url,
+                )
+                return []
+            except InternalServerError as exc:
+                # 5xx: 服务端错误，尝试 failover
+                logger.error(
+                    "twelvelabs.server_error",
+                    error=str(exc),
+                    error_type="InternalServerError",
+                    base_url=self._current_base_url,
+                    options=options,
+                )
+                if self._live_enabled and self._advance_client():
+                    logger.info("twelvelabs.client_failover", base_url=self._current_base_url)
+                    continue
+                if self._live_enabled:
+                    raise RuntimeError("TwelveLabs 服务暂时不可用，请稍后重试") from exc
+                return self._mock_results(query, limit)
             except Exception as exc:  # noqa: BLE001
+                # 其他未知错误，保留原有 failover 逻辑
                 logger.warning(
                     "twelvelabs.search_failed",
                     error=str(exc),
+                    error_type=type(exc).__name__,
                     live_enabled=self._live_enabled,
                     base_url=self._current_base_url,
                     options=options,
@@ -215,11 +282,33 @@ class TwelveLabsClient:
                 duration_ms=duration_ms,
             )
             return duration_ms
-        except Exception as exc:  # noqa: BLE001
+        except NotFoundError as exc:
+            # 视频不存在，缓存 0 避免重复请求
+            logger.warning(
+                "twelvelabs.video_not_found",
+                video_id=video_id,
+                error=str(exc),
+                error_type="NotFoundError",
+            )
+            self._video_duration_cache[video_id] = 0
+            return 0
+        except (BadRequestError, ForbiddenError, InternalServerError) as exc:
+            # SDK 特定错误
             logger.warning(
                 "twelvelabs.video_duration_failed",
                 video_id=video_id,
                 error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            self._video_duration_cache[video_id] = 0
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            # 其他错误（网络等）
+            logger.warning(
+                "twelvelabs.video_duration_failed",
+                video_id=video_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
             )
             self._video_duration_cache[video_id] = 0  # 缓存失败结果避免重复请求
             return 0
@@ -455,8 +544,32 @@ class TwelveLabsClient:
                 self._current_base_url = base_url or "default"
                 logger.info("twelvelabs.client_initialized", base_url=self._current_base_url)
                 return True
+            except ForbiddenError as exc:
+                # 认证错误，不应继续尝试其他 URL
+                logger.error(
+                    "twelvelabs.client_auth_failed",
+                    base_url=base_url,
+                    error=str(exc),
+                    error_type="ForbiddenError",
+                )
+                break  # 认证失败，停止尝试
+            except (BadRequestError, NotFoundError, InternalServerError) as exc:
+                # SDK 特定错误，记录并尝试下一个 URL
+                logger.warning(
+                    "twelvelabs.client_init_failed",
+                    base_url=base_url,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+                self._base_url_index += 1
             except Exception as exc:  # noqa: BLE001
-                logger.warning("twelvelabs.client_init_failed", base_url=base_url, error=str(exc))
+                # 其他错误（网络等），记录并尝试下一个 URL
+                logger.warning(
+                    "twelvelabs.client_init_failed",
+                    base_url=base_url,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
                 self._base_url_index += 1
         self._client = None
         return False

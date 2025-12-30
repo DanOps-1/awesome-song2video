@@ -1,5 +1,37 @@
 # 更新日志
 
+## 2025-12-30
+
+### 技术改进
+
+#### TwelveLabs SDK 规范化升级 🔧
+- **SDK 调用规范化**：
+  - 将 `self._client: Any` 改为 `self._client: TwelveLabs`，明确类型注解
+  - 使用 SDK 官方异常类型替代通用 `Exception` 捕获
+  - 所有异常类型直接从 `twelvelabs` 模块导入
+- **精细化异常处理**：
+  - `ForbiddenError`：API 认证失败，记录 ERROR 日志并抛出 RuntimeError
+  - `TooManyRequestsError`：频率限制，记录 WARNING 日志并触发 failover
+  - `BadRequestError`：请求参数错误，记录 WARNING 日志并返回空列表
+  - `NotFoundError`：资源未找到，记录 WARNING 日志并返回空列表
+  - `InternalServerError`：服务端错误，记录 ERROR 日志并触发 failover
+- **类型提示改进**：
+  - 使用 PEP 604 语法 `int | None` 替代 `Optional[int]`
+  - 使用 PEP 585 语法 `list[str]` 替代 `List[str]`
+  - 移除不必要的 `Any` 类型导入
+- **影响文件**：
+  - `src/services/matching/twelvelabs_client.py` - 核心客户端
+  - `src/services/matching/action_detector.py` - 视频动作分析
+  - `src/retrieval/twelvelabs/retriever.py` - 检索器类型优化
+
+### 验证结果
+
+- ✅ 所有 80 个单元测试通过
+- ✅ Ruff 代码检查通过
+- ✅ mypy 类型检查通过
+
+---
+
 ## 2025-12-14
 
 ### 新增功能
