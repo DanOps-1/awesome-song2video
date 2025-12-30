@@ -18,14 +18,6 @@ async def test_timeline_builder_returns_segments(
 
     builder = TimelineBuilder()
 
-    async def fake_transcribe(
-        path: Path, language: str | None = None, prompt: str | None = None
-    ) -> list[dict[str, Any]]:
-        return [
-            {"text": "第一句", "start": 0.0, "end": 1.0},
-            {"text": "第二句", "start": 1.0, "end": 2.0},
-        ]
-
     async def fake_search(query: str, limit: int = 5) -> list[dict[str, Any]]:
         return [
             {
@@ -38,12 +30,13 @@ async def test_timeline_builder_returns_segments(
         ]
 
     monkeypatch.setattr(
-        "src.pipelines.matching.timeline_builder.transcribe_with_timestamps", fake_transcribe
-    )
-    monkeypatch.setattr(
         "src.pipelines.matching.timeline_builder.client.search_segments", fake_search
     )
 
-    timeline = await builder.build(audio_path=audio_path, lyrics_text=None)
+    # Use lyrics_text instead of audio transcription
+    lyrics_text = """第一句
+第二句"""
+
+    timeline = await builder.build(audio_path=audio_path, lyrics_text=lyrics_text)
     assert len(timeline.lines) == 2
     assert timeline.lines[0].candidates

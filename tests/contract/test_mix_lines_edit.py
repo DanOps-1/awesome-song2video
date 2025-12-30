@@ -9,7 +9,7 @@ async def test_get_lines_empty(app_client: AsyncClient) -> None:
     注意：创建 mix 时提供的 lyrics_text 只是存储原始歌词，
     不会自动创建 LyricLine 记录。LyricLine 需要通过：
     - import-lyrics 端点导入
-    - 或 transcribe 端点识别
+    - 或 fetch-lyrics 端点从在线服务获取
     """
     create_resp = await app_client.post(
         "/api/v1/mixes",

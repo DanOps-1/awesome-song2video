@@ -14,7 +14,7 @@ from src.infra.config.settings import get_settings
 from src.infra.persistence.database import get_session
 from src.infra.persistence.repositories.song_mix_repository import SongMixRepository
 from src.workers import redis_settings
-from src.workers.timeline_worker import build_timeline, transcribe_lyrics, match_videos
+from src.workers.timeline_worker import build_timeline, match_videos
 
 
 router = APIRouter(prefix="/api/v1/mixes", tags=["mixes"])
@@ -181,27 +181,20 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
     )
 
 
-@router.post("/{mix_id}/transcribe", status_code=202)
+@router.post("/{mix_id}/transcribe", status_code=410)
 async def trigger_transcription(
     mix_id: Annotated[str, Path(description="混剪任务 ID")],
 ) -> dict[str, str]:
-    """触发歌词识别（阶段1）。
+    """[已弃用] 触发歌词识别。
 
-    仅进行 Whisper 识别，不进行视频匹配。
-    完成后状态变为 transcribed，等待用户确认歌词。
+    Whisper 转录功能已移除。请使用以下替代方案：
+    - POST /api/v1/mixes/{id}/fetch-lyrics - 从在线服务获取歌词
+    - POST /api/v1/mixes/{id}/import-lyrics - 手动导入歌词
     """
-    mix = await repo.get_request(mix_id)
-    if mix is None:
-        raise HTTPException(status_code=404, detail="任务不存在")
-
-    trace_id = str(uuid4())
-    if settings.enable_async_queue:
-        pool = await create_pool(redis_settings())
-        await pool.enqueue_job("transcribe_lyrics", mix_id)
-    else:
-        asyncio.create_task(transcribe_lyrics({}, mix_id))
-
-    return {"trace_id": trace_id, "message": "已开始歌词识别"}
+    raise HTTPException(
+        status_code=410,
+        detail="Whisper 转录功能已移除。请使用 /fetch-lyrics 获取在线歌词，或 /import-lyrics 手动导入。",
+    )
 
 
 class ImportLyricsRequest(BaseModel):

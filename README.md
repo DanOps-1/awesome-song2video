@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  基于 TwelveLabs 视频理解 + Whisper 语音识别 + DeepSeek 语义改写
+  基于 TwelveLabs 视频理解 + 在线歌词服务 + DeepSeek 语义改写
 </p>
 
 <p align="center">
@@ -43,14 +43,14 @@
 ### 工作流程
 
 ```
-🎵 上传音频 → 🗣️ Whisper 识别歌词 → 🤖 AI 语义改写 → 🎬 视频片段匹配 → 🎯 节拍卡点 → 📹 渲染输出
+🎵 上传音频 → 🎤 在线歌词获取 → 🤖 AI 语义改写 → 🎬 视频片段匹配 → 🎯 节拍卡点 → 📹 渲染输出
 ```
 
 ### 效果展示
 
 | 功能 | 说明 |
 |------|------|
-| 🎵 智能歌词识别 | Whisper large-v3，自动跳过前奏 |
+| 🎤 多源歌词获取 | QQ音乐/网易云/酷狗/LRCLIB，自动回退 |
 | 🤖 AI 查询改写 | 抽象歌词 → 具体视觉描述，匹配率 100% |
 | 🎬 语义视频匹配 | TwelveLabs API 智能匹配 |
 | 🥁 鼓点自动卡点 | 类似剪映的节奏同步 |
@@ -176,7 +176,7 @@ bash start.sh
          ▼                          ▼
 ┌─────────────────┐      ┌─────────────────────────────────────┐
 │   PostgreSQL    │      │          External Services          │
-│    Database     │      │  TwelveLabs │ Whisper │ DeepSeek    │
+│    Database     │      │  TwelveLabs  │  DeepSeek  │ 歌词 API  │
 └─────────────────┘      └─────────────────────────────────────┘
 ```
 
@@ -188,7 +188,7 @@ bash start.sh
 | **前端** | React, TypeScript, Vite, TailwindCSS |
 | **队列** | Redis, ARQ |
 | **视频** | FFmpeg, Pydub |
-| **AI** | TwelveLabs, Whisper, DeepSeek |
+| **AI** | TwelveLabs, DeepSeek, 歌词服务 (QQ/NetEase/Kugou/LRCLIB) |
 | **监控** | OpenTelemetry, Structlog |
 
 ---
@@ -223,7 +223,7 @@ GET /api/v1/mixes/{id}/render/status
 | `/api/v1/mixes` | POST | 创建混剪任务 |
 | `/api/v1/mixes/{id}` | GET | 获取任务详情 |
 | `/api/v1/mixes/{id}/fetch-lyrics` | POST | 在线获取歌词 |
-| `/api/v1/mixes/{id}/transcribe` | POST | Whisper 识别 |
+| `/api/v1/mixes/{id}/import-lyrics` | POST | 手动导入歌词 |
 | `/api/v1/mixes/{id}/lines` | GET/POST | 管理歌词行 |
 | `/api/v1/mixes/{id}/preview` | GET | 时间线预览 |
 | `/api/v1/mixes/{id}/render` | POST | 提交渲染 |
@@ -254,7 +254,6 @@ GET /api/v1/mixes/{id}/render/status
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DEEPSEEK_API_KEY` | - | DeepSeek API（查询改写）|
-| `WHISPER_MODEL_NAME` | large-v3 | Whisper 模型 |
 | `BEAT_SYNC_ENABLED` | true | 节拍卡点开关 |
 | `BEAT_SYNC_MODE` | onset | 卡点模式 (onset/action) |
 | `VIDEO_INTRO_SKIP_MS` | 8000 | 跳过视频片头毫秒 |

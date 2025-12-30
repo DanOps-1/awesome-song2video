@@ -100,28 +100,30 @@ uv run ruff check src tests && uv run ruff format --check src tests && \
 
 ### Core Data Flow
 1. **Audio Upload** → User uploads audio file
-2. **Lyrics Acquisition** → Multi-source lyrics search (recommended) or Whisper ASR (fallback)
+2. **Lyrics Acquisition** → Multi-source online lyrics search or manual import
 3. **Lyrics Confirmation** → User reviews/edits lyrics
 4. **Video Matching** → TwelveLabs API matches each lyric line to video segments
 5. **Rendering** → FFmpeg concatenates clips with audio and burned-in subtitles
 
 ### Lyrics Acquisition (Multi-Source)
-The system supports two lyrics acquisition modes:
-1. **Online Search (Recommended)**: Fetches lyrics from multiple platforms with auto-fallback
-   - QQ Music (best coverage, including Jay Chou)
-   - NetEase Cloud Music
-   - Kugou Music
-   - LRCLIB (international songs)
-2. **AI Recognition**: Uses Whisper ASR for rare songs or original content
+The system fetches lyrics from multiple online platforms with auto-fallback:
+- QQ Music (best coverage, including Jay Chou)
+- NetEase Cloud Music
+- Kugou Music
+- LRCLIB (international songs)
 
-### Two-Phase Timeline Generation
-The system uses a two-phase workflow in `timeline_worker.py`:
-1. `transcribe_lyrics`: Whisper recognition only (pending → transcribing → transcribed)
+Users can also manually import lyrics via `/import-lyrics` endpoint.
+
+Note: Local Whisper ASR has been removed to simplify deployment requirements.
+
+### Timeline Workflow
+The system uses a two-step workflow in `timeline_worker.py`:
+1. **Lyrics acquisition**: Via online services or manual import (pending → transcribed)
 2. `match_videos`: Video matching for confirmed lyrics (transcribed → matching → generated)
 
 ### Key Services
 - **LyricsFetcher** (`src/lyrics/fetcher.py`): Multi-source lyrics fetcher with auto-fallback (QQ/NetEase/Kugou/LRCLIB)
-- **TimelineBuilder** (`src/pipelines/matching/timeline_builder.py`): Orchestrates Whisper transcription and TwelveLabs video search with query rewriting and deduplication
+- **TimelineBuilder** (`src/pipelines/matching/timeline_builder.py`): Orchestrates TwelveLabs video search with query rewriting and deduplication
 - **RenderWorker** (`src/workers/render_worker.py`): Parallel clip extraction with FFmpeg, supports hot-reload config via Redis, video aspect ratio, bilingual subtitles
 - **QueryRewriter** (`src/services/matching/query_rewriter.py`): Uses DeepSeek LLM to convert abstract lyrics to visual descriptions
 - **BeatAligner** (`src/services/matching/beat_aligner.py`): Aligns video clips with music beats/onsets for rhythm sync
@@ -131,8 +133,8 @@ The system uses a two-phase workflow in `timeline_worker.py`:
 ### API Structure
 - `/api/v1/mixes` - Create/manage mix requests
 - `/api/v1/mixes/{id}/fetch-lyrics` - Fetch lyrics from online sources (QQ/NetEase/Kugou/LRCLIB)
-- `/api/v1/mixes/{id}/transcribe` - Transcribe lyrics using Whisper ASR
 - `/api/v1/mixes/{id}/import-lyrics` - Import user-provided lyrics
+- `/api/v1/mixes/{id}/transcribe` - [DEPRECATED] Returns 410 Gone
 - `/api/v1/mixes/{id}/lines` - Manage lyric lines
 - `/api/v1/mixes/{id}/preview` - Get timeline manifest
 - `/api/v1/mixes/{id}/render` - Submit render job
@@ -153,7 +155,7 @@ The system uses a two-phase workflow in `timeline_worker.py`:
 
 ### Workers (ARQ-based)
 Workers use Redis + ARQ for async task processing:
-- `timeline_worker`: Handles transcription and video matching
+- `timeline_worker`: Handles video matching for confirmed lyrics
 - `render_worker`: Handles video clip extraction and final rendering
 
 ## Environment Variables
@@ -168,7 +170,6 @@ Optional AI features:
 - `DEEPSEEK_API_KEY` - For query rewriting (improves match rate)
 - `QUERY_REWRITE_SCORE_THRESHOLD` - Score threshold for triggering rewrite (default: 0.9, rewrite only when score < threshold)
 - `QUERY_REWRITE_MAX_ATTEMPTS` - Max rewrite attempts (default: 3)
-- `WHISPER_MODEL_NAME` - Whisper model (default: large-v3)
 
 Beat sync (rhythm alignment):
 - `BEAT_SYNC_ENABLED` - Enable beat/onset sync (default: true)
@@ -186,3 +187,12 @@ Video filtering (intro/outro skip):
 - Async-first: All DB operations and external API calls are async
 - Settings via `pydantic-settings` in `src/infra/config/settings.py`
 - SQLModel for database models with async SQLAlchemy
+
+## Active Technologies
+- Python 3.11+ + twelvelabs>=0.1.7, structlog, anyio (001-twelvelabs-sdk-upgrade)
+- N/A（本次重构不涉及存储层） (001-twelvelabs-sdk-upgrade)
+- Python 3.11+（已有） + FastAPI, SQLModel, structlog, httpx, librosa, FFmpeg (002-remove-local-deps)
+- PostgreSQL + Redis（已有） (002-remove-local-deps)
+
+## Recent Changes
+- 001-twelvelabs-sdk-upgrade: Added Python 3.11+ + twelvelabs>=0.1.7, structlog, anyio

@@ -1,91 +1,62 @@
-# 实施计划：[FEATURE]
+# Implementation Plan: [FEATURE]
 
-**分支**：`[###-feature-name]` | **日期**：[DATE] | **规格**：[link]
-**输入**：基于 `/specs/[###-feature-name]/spec.md` 的功能需求文档
+**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 
-**提示**：本模板由 `/speckit.plan` 命令生成。填写内容必须使用简体中文，并明确说明如何满足宪章提出的异步、分层、测试、可观测性（含 render_clip_* 与 clip_stats）、查询改写与 LLM 使用、媒资片段按需拉取、歌词细粒度分句与时间轴归零（前奏检测 + Whisper 阈值/word_timestamps）、FFmpeg output seeking + 重新编码裁剪、片段去重/语义对齐以及目录/命令一致性要求（`src/api/v1`、`src/domain/...`、`src/pipelines/...`、`src/infra/...`、`src/workers/...`、`tests/...` 以及 `uvicorn/arq/pytest/scripts/dev/seed_demo.sh` 等需逐一说明豁免与调整）。
+**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
-## 摘要
+## Summary
 
-[从规格文档提炼的核心需求与计划中的技术路径（中文描述，限制两段内）]
+[Extract from feature spec: primary requirement + technical approach from research]
 
-## 技术背景
+## Technical Context
 
-> 请逐项说明现状与待决事项，如与默认要求不符需标注“NEEDS CLARIFICATION”。
+<!--
+  ACTION REQUIRED: Replace the content in this section with the technical details
+  for the project. The structure here is presented in advisory capacity to guide
+  the iteration process.
+-->
 
-**语言/版本**：默认 `Python 3.11+（异步优先）`，若需豁免必须说明原因及影响。
-**主要依赖**：列出全部异步友好库（如 FastAPI、httpx、asyncpg）及其用途。
-**存储**：指明数据库或持久化方案，并说明驱动是否支持异步访问。
-**测试**：默认 `pytest + pytest-asyncio + mypy/ruff`，补充专项工具或额外门槛。
-**目标平台**：如 Linux 服务端、WASM、iOS/Android SDK 等。
-**项目形态**：单体 / 前后端 / 移动 + API，用于决定源码布局。
-**性能目标**：写明吞吐、延迟、并发容量或业务指标。
-**约束**：内存、时延、安全、合规或第三方协议限制。
-**规模/范围**：预计模块数、用户量、接口数等量化范围。
-**运行命令**：列出本功能涉及的开发/运维命令（`uvicorn src.api.main:app --reload --port 8080`、`arq src.workers.timeline_worker.WorkerSettings`、`arq src.workers.render_worker.WorkerSettings`、`pytest && ruff check && mypy`、`scripts/dev/seed_demo.sh` 等），如需新增或替换必须说明原因；涉及媒资片段拉取、歌词分句、查询改写或片段去重的流水线需写明触发入口、清理策略与指标记录（含改写触发次数、成功率与去重率等）。
+**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
+**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
+**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
+**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
+**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Project Type**: [single/web/mobile - determines source structure]  
+**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
+**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
+**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
 
-## 宪章符合性检查
+## Constitution Check
 
-*必须在进入 Phase 0 研究前完成，并在 Phase 1 结束后复核。*
+*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-1. 是否完全基于 Python 3.11+ 与异步库？若否，列明豁免与补救。
-2. 模块/类职责是否清晰、通过接口交互且无跨层耦合？
-3. 所有交付物、日志、注释与评审资料是否承诺使用中文？
-4. 测试计划是否覆盖 `pytest-asyncio`、契约/集成测试与静态检查？
-5. 是否定义结构化日志、关键指标（含 render_clip_*、clip_stats）及语义化版本影响分析？
-6. 媒资是否按需截取（非整段下载）、时间轴是否以首句人声为零点、前奏检测与字幕偏移是否有指标/日志支撑？
-7. Whisper 阈值（默认 0.8）、`word_timestamps` 与分句策略是否记录，FFmpeg 裁剪是否采用 output seeking + 重新编码并给出 ≤±50ms 的验证方案？
-8. 仓库目录（`src/api/v1`, `src/domain/{models,services}`, `src/pipelines/{lyrics_ingest,matching,rendering}`, `src/infra/{persistence,messaging,observability}`, `src/workers/{timeline_worker,render_worker}.py`, `tests/{unit,contract,integration,golden}`）与标准命令是否被遵守或说明豁免？
+[Gates determined based on constitution file]
 
-## 项目结构
+## Project Structure
 
-### 默认目录（歌词语义混剪）
-
-```text
-src/
-├── api/v1/
-├── domain/
-│   ├── models/
-│   └── services/
-├── pipelines/
-│   ├── lyrics_ingest/
-│   ├── matching/
-│   └── rendering/
-├── infra/
-│   ├── persistence/
-│   ├── messaging/
-│   └── observability/
-└── workers/
-    ├── timeline_worker.py
-    └── render_worker.py
-
-tests/
-├── unit/
-├── contract/
-├── integration/
-└── golden/
-```
-
-> 若功能涉及新增模块或目录，请在下方结构决策中说明真实路径与职责，并同步 README/AGENTS.md。
-
-### 文档（本功能）
+### Documentation (this feature)
 
 ```text
 specs/[###-feature]/
-├── plan.md              # 本文件，由 /speckit.plan 生成
-├── research.md          # Phase 0 产物（/speckit.plan）
-├── data-model.md        # Phase 1 产物（/speckit.plan）
-├── quickstart.md        # Phase 1 产物（/speckit.plan）
-├── contracts/           # Phase 1 产物（/speckit.plan）
-└── tasks.md             # Phase 2 产物（/speckit.tasks，非本命令生成）
+├── plan.md              # This file (/speckit.plan command output)
+├── research.md          # Phase 0 output (/speckit.plan command)
+├── data-model.md        # Phase 1 output (/speckit.plan command)
+├── quickstart.md        # Phase 1 output (/speckit.plan command)
+├── contracts/           # Phase 1 output (/speckit.plan command)
+└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
-### 源码（仓库根目录）
-
-> 请选择适用结构并删除无关选项，替换为真实目录路径。
+### Source Code (repository root)
+<!--
+  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
+  for this feature. Delete unused options and expand the chosen structure with
+  real paths (e.g., apps/admin, packages/something). The delivered plan must
+  not include Option labels.
+-->
 
 ```text
-# 单体项目（默认）
+# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
 src/
 ├── models/
 ├── services/
@@ -97,7 +68,7 @@ tests/
 ├── integration/
 └── unit/
 
-# Web 应用（前后端）
+# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
 backend/
 ├── src/
 │   ├── models/
@@ -112,20 +83,22 @@ frontend/
 │   └── services/
 └── tests/
 
-# 移动 + API
+# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
 api/
-└── [与 backend 相同布局]
-ios/ 或 android/
-└── [平台模块、UI 流程、平台测试]
+└── [same as backend above]
+
+ios/ or android/
+└── [platform-specific structure: feature modules, UI flows, platform tests]
 ```
 
-**结构决策**：说明选型原因、模块耦合关系以及真实目录。
+**Structure Decision**: [Document the selected structure and reference the real
+directories captured above]
 
-## 复杂度追踪
+## Complexity Tracking
 
-> 仅当“宪章符合性检查”存在未通过项时填写，用于记录豁免理由与补偿措施。
+> **Fill ONLY if Constitution Check has violations that must be justified**
 
-| 违反项 | 必要性说明 | 被否决的更简单方案 |
-|---------|------------|----------------------|
-| [示例：新增第 4 个子项目] | [当前需求] | [为何 3 个项目不足] |
-| [示例：Repository 模式] | [具体问题] | [为何直接访问不可行] |
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
+| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
