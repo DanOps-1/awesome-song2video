@@ -11,21 +11,19 @@ import {
   message, 
   Tooltip
 } from 'antd'
-import { 
-  InboxOutlined, 
-  ArrowLeftOutlined, 
+import {
+  InboxOutlined,
+  ArrowLeftOutlined,
   CloudUploadOutlined,
   MobileOutlined,
   DesktopOutlined,
   AppstoreOutlined,
   BorderOutlined,
-  SearchOutlined,
-  AudioOutlined,
   CustomerServiceOutlined,
   LoadingOutlined
 } from '@ant-design/icons'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createMix, transcribeLyrics, fetchLyrics, uploadAudio } from '@/api/mix'
+import { createMix, fetchLyrics, uploadAudio } from '@/api/mix'
 import type { UploadFile, RcFile } from 'antd/es/upload/interface'
 
 const { Title, Text } = Typography
@@ -75,7 +73,6 @@ export default function Create() {
   const [form] = Form.useForm()
   const [fileList, setFileList] = useState<UploadFile[]>([])
   const [aspectRatio, setAspectRatio] = useState('9:16')
-  const [lyricsMode, setLyricsMode] = useState('search')
   const [messageApi, contextHolder] = message.useMessage()
 
   const createMutation = useMutation({
@@ -99,16 +96,9 @@ export default function Create() {
       const mix = await createMix(createPayload)
 
       messageApi.loading({ content: '正在获取歌词...', key: 'process' })
-      if (lyricsMode === 'search') {
-        fetchLyrics(mix.id)
-          .then(() => console.log('Lyrics fetched'))
-          .catch(() => {
-            console.log('Search failed, fallback to AI')
-            transcribeLyrics(mix.id).catch(console.error)
-          })
-      } else {
-        transcribeLyrics(mix.id).catch(console.error)
-      }
+      fetchLyrics(mix.id)
+        .then(() => console.log('Lyrics fetched'))
+        .catch((err) => console.error('Lyrics fetch failed:', err))
       return mix
     },
     onSuccess: (mix) => {
@@ -227,26 +217,6 @@ export default function Create() {
               </div>
             </Form.Item>
           </div>
-
-          <Form.Item label={<span className="text-white/80">歌词获取方式</span>}>
-            <div className="grid grid-cols-2 gap-4">
-              <RadioCard 
-                active={lyricsMode === 'search'}
-                onClick={() => setLyricsMode('search')}
-                icon={<SearchOutlined />}
-                title="在线搜索"
-                desc="精确匹配，支持各大平台"
-                badge="推荐"
-              />
-              <RadioCard 
-                active={lyricsMode === 'ai'}
-                onClick={() => setLyricsMode('ai')}
-                icon={<AudioOutlined />}
-                title="AI 识别"
-                desc="Whisper 模型语音转文字"
-              />
-            </div>
-          </Form.Item>
 
           <Form.Item className="mb-0 pt-4">
             <Button 

@@ -8,7 +8,6 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('@/api/mix', () => ({
   uploadAudio: vi.fn(),
   createMix: vi.fn(),
-  transcribeLyrics: vi.fn(),
   fetchLyrics: vi.fn(),
 }))
 

@@ -62,10 +62,6 @@ export default function GeneralConfig() {
             <dt className="text-sm text-gray-500">检索后端</dt>
             <dd className="text-sm font-medium text-gray-900">{config?.retriever.backend}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-sm text-gray-500">Whisper 模型</dt>
-            <dd className="text-sm font-medium text-gray-900">{config?.whisper.model_name}</dd>
-          </div>
         </dl>
       </div>
 

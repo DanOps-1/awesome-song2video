@@ -155,13 +155,13 @@ export default function Status() {
         <div className="flex items-center justify-between mb-6 relative z-10">
           <div>
             <h2 className="text-2xl font-bold text-white mb-1">
-              {timelineStatus === 'transcribing' ? '正在识别歌词' :
+              {timelineStatus === 'transcribing' ? '正在获取歌词' :
                timelineStatus === 'transcribed' ? '歌词校对' :
                timelineStatus === 'matching' ? '正在匹配视频' :
                timelineStatus === 'generated' ? '混剪预览' : '准备中'}
             </h2>
             <p className="text-white/50">
-               {timelineStatus === 'transcribing' ? 'AI 正在聆听音频内容...' :
+               {timelineStatus === 'transcribing' ? '正在从在线歌词库搜索...' :
                timelineStatus === 'transcribed' ? '请确认歌词准确无误' :
                timelineStatus === 'matching' ? '正在全网搜索最佳画面...' :
                '选择最合适的视频片段'}

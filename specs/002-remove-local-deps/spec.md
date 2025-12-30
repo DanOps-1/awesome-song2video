@@ -141,3 +141,20 @@
 ### Session 2025-12-30
 
 - Q: librosa 用于音乐节拍分析，是否也要移除？ → A: 保留 librosa，继续支持节拍卡点功能（不需要 GPU，约 50MB）
+
+### Session 2025-12-30 - 前端清理
+
+后端已完成 Whisper/transcribe 功能移除，前端界面需要同步清理：
+
+- Q: Create.tsx 中的「AI 识别」歌词获取方式选项应该如何处理？ → A: **完全移除**。移除 RadioCard 选项，只保留「在线搜索」单一入口
+- Q: Status.tsx 中的 transcribing 状态 UI 应该如何处理？ → A: **保留但改文案**。将"正在识别歌词"改为"正在获取歌词"，将"AI 正在聆听音频内容..."改为"正在从在线歌词库搜索..."
+- Q: 管理后台 GeneralConfig.tsx 中的 Whisper 模型信息应该如何处理？ → A: **完全移除**。删除 Whisper 模型相关的显示行
+
+**前端变更清单**:
+1. `apps/frontend/src/pages/Create.tsx` - 移除"AI 识别"选项、移除 `transcribeLyrics` 调用和导入
+2. `apps/frontend/src/pages/Status.tsx` - 修改 transcribing 状态的文案
+3. `apps/frontend/src/api/mix.ts` - 移除 `transcribeLyrics` 函数
+4. `apps/frontend/src/test/Create.test.tsx` - 移除 `transcribeLyrics` mock
+5. `apps/web/src/pages/settings/GeneralConfig.tsx` - 移除 Whisper 模型显示行
+6. `apps/web/src/types/index.ts` - 移除 whisper 类型定义（如后端已移除）
+7. `apps/web/src/api/config.ts` - 移除 whisper 相关字段（如后端已移除）

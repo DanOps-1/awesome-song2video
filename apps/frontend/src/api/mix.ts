@@ -77,11 +77,6 @@ export async function generateTimeline(mixId: string): Promise<{ trace_id: strin
   return data
 }
 
-export async function transcribeLyrics(mixId: string): Promise<{ trace_id: string; message: string }> {
-  const { data } = await apiClient.post(`/mixes/${mixId}/transcribe`)
-  return data
-}
-
 export async function importLyrics(mixId: string, lyricsText: string): Promise<{ message: string }> {
   const { data } = await apiClient.post(`/mixes/${mixId}/import-lyrics`, {
     lyrics_text: lyricsText,
