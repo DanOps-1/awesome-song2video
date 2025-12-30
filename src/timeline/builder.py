@@ -7,10 +7,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional
-
-if TYPE_CHECKING:
-    pass  # WhisperTranscriber not defined in transcriber.py
+from typing import List, Optional
 
 import structlog
 
@@ -52,7 +49,9 @@ def calculate_overlap_ratio(start1: int, end1: int, start2: int, end2: int) -> f
 class TimelineBuilder:
     """时间线构建器
 
-    将音频转录结果或歌词文本与视频片段对齐。
+    将歌词文本与视频片段对齐。
+
+    注意：本地 Whisper ASR 已移除，歌词必须通过在线服务获取或手动导入。
     """
 
     def __init__(
@@ -66,7 +65,6 @@ class TimelineBuilder:
         """
         self._settings = get_settings()
         self._retriever = retriever or create_retriever()
-        self._transcriber = None  # 延迟初始化
 
         # 缓存和去重
         self._candidate_cache: dict[tuple[str, int], List[VideoClip]] = {}
@@ -190,14 +188,6 @@ class TimelineBuilder:
 
         return timeline
 
-    def _get_transcriber(self) -> Any:
-        """延迟加载转录器 (legacy code - WhisperTranscriber class not defined)"""
-        if self._transcriber is None:
-            from src.audio.transcriber import WhisperTranscriber  # type: ignore[attr-defined]
-
-            self._transcriber = WhisperTranscriber()
-        return self._transcriber
-
     async def _get_segments(
         self,
         audio_path: Optional[Path],
@@ -205,16 +195,12 @@ class TimelineBuilder:
         language: Optional[str],
         prompt: Optional[str],
     ) -> List[dict]:
-        """获取转录片段或解析歌词"""
-        if audio_path:
-            transcriber = self._get_transcriber()
-            result = await transcriber.transcribe(
-                audio_path,
-                language=language,
-                prompt=prompt,
-            )
-            return [dict(seg) for seg in result.segments]
-        elif lyrics_text:
+        """解析歌词文本为片段列表。
+
+        注意：本地 Whisper ASR 已移除，歌词必须通过在线服务获取或手动导入。
+        audio_path、language 和 prompt 参数保留仅为兼容性，不再使用。
+        """
+        if lyrics_text:
             segments = []
             for idx, line in enumerate(lyrics_text.splitlines()):
                 stripped = line.strip()
@@ -228,7 +214,7 @@ class TimelineBuilder:
                     )
             return segments
         else:
-            raise ValueError("必须提供音频或歌词")
+            raise ValueError("必须提供歌词文本（通过在线服务获取或手动导入）")
 
     async def _search_candidates(
         self,

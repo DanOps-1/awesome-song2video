@@ -33,6 +33,7 @@ class QueryRewriter:
         self._api_key = settings.deepseek_api_key
         self._base_url = settings.deepseek_base_url
         self._client: AsyncOpenAI | None = None
+        self._cache: dict[str, str] = {}
 
         if self._enabled and self._api_key:
             self._client = AsyncOpenAI(
@@ -93,12 +94,26 @@ class QueryRewriter:
         if not self._enabled or not self._client:
             return original_query
 
+        # 为不同的尝试次数构建缓存键
+        cache_key = f"{original_query}::{attempt}"
+
+        # 检查缓存
+        if cache_key in self._cache:
+            logger.debug(
+                "query_rewriter.cache_hit",
+                original=original_query,
+                attempt=attempt,
+                rewritten=self._cache[cache_key],
+            )
+            return self._cache[cache_key]
+
         try:
             rewritten = await self._call_llm(original_query, attempt)
 
             # 🎬 强制角色验证：确保查询包含 cat/mouse 角色
             rewritten = self._ensure_character_in_query(rewritten)
 
+            self._cache[cache_key] = rewritten
             logger.info(
                 "query_rewriter.rewritten",
                 original=original_query,
@@ -155,29 +170,75 @@ class QueryRewriter:
         返回统一的改写策略 prompt。
 
         专门针对猫鼠卡通素材库优化。
+        核心原则：输出必须包含角色（cat/mouse），禁止纯物品/场景描述。
         """
-        return """Convert song lyrics to cartoon video search queries.
 
-RULES:
-1. Use ONLY "cat" or "mouse" as characters (NEVER use names)
-2. Format: [character] + [action/emotion], 3-6 words
-3. Focus on emotions, not literal meanings
+        # 统一策略：角色优先 + 动作/表情 + 简洁输出 + 拟声词智能处理
+        return """You are a video search query optimizer for a cat and mouse cartoon library.
 
-EXAMPLES:
-"I'm preying on you" → cat stalking mouse
-"Hunt you down" → cat chasing aggressively
-"Counting stars" → cat looking up dreamy
-"Losing sleep" → cat restless worried
-"Heart on fire" → cat passionate excited
-"Yeah yeah yeah" → cat jumping happy
-"啦啦啦" → mouse dancing joyful
-"Roar!" → cat roaring fierce
-"写一封信" → cat writing letter
-"想念你" → cat looking sad lonely
+Your task: Convert song lyrics into **character action descriptions** for cat and mouse clips.
 
-WRONG (never do this):
-❌ Objects without characters: "perfume bottle", "stage"
-❌ Repeating input: "yeah yeah" → "yeah yeah"
-❌ Too literal: "counting stars" → "counting coins"
+**CRITICAL RULES - MUST FOLLOW:**
+1. Output MUST contain a CHARACTER: "cat" or "mouse"
+2. Output MUST contain an ACTION or EXPRESSION
+3. NEVER output objects only (NO: "perfume bottle", "stage", "gifts", "electricity")
+4. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
+5. Keep output SHORT: 3-6 English words only
+6. Prefer character close-ups with facial expressions or clear body movements
+7. Understand the EMOTIONAL/METAPHORICAL meaning, NOT literal meaning
 
-Lyrics:"""
+**METAPHORICAL LYRICS - Understand the emotion, not literal words:**
+- "counting stars" = romantic/dreamy/hopeful → "cat mouse looking up dreamy" (NOT counting objects!)
+- "losing sleep" = worried/anxious → "cat tossing turning worried" (NOT just sleeping)
+- "praying hard" = hoping/wishing → "cat hands together wishing" (NOT religious scene)
+- "sold" = betrayed/lost hope → "cat sad disappointed"
+- "doing the right thing" = moral struggle → "cat conflicted thinking"
+- "fire inside" = passion/anger → "cat fierce determined" (NOT literal fire)
+- "heart on fire" = love/passion → "cat love-struck dreamy" (NOT burning)
+
+**SPECIAL RULE FOR INTERJECTIONS/ONOMATOPOEIA:**
+Some lyrics contain interjections or sound effects. Handle them intelligently:
+
+1. **Meaningful sound effects** (keep the meaning!):
+   - "oww/howl/awoo" (wolf howl) → "cat howling like wolf"
+   - "roar/grr" (growl) → "cat growling fierce"
+   - "meow/purr" → "cat meowing"
+   - "boom/bang/crash" → "cat crashing explosion"
+   - "splash" → "cat falling into water"
+
+2. **Pure filler interjections** (convert to high-energy action):
+   - "yeah/oh/ah/hey" alone → "cat jumping excited"
+   - "la la la/na na na" alone → "mouse dancing happy"
+
+3. **Mixed lyrics with interjections** (focus on the semantic content):
+   - "Just like animals oww" → "cat howling like wild animal" (oww = wolf howl, keep it!)
+   - "Hunt you down yeah yeah" → "cat chasing aggressively" (yeah = filler, ignore)
+
+**GOOD Examples:**
+"Baby I'm preying on you tonight" → "cat stalking mouse"
+"Hunt you down eat you alive" → "cat chasing mouse aggressively"
+"Just like animals oww" → "cat howling like wild animal"
+"animals-mals yeah oww" → "cat howling fiercely"
+"Yeah yeah yeah" (alone) → "cat jumping excited"
+"Oh oh oh~" (alone) → "mouse running fast"
+"啊啊啊" (alone) → "cat screaming shocked"
+"啦啦啦" (alone) → "mouse dancing happy"
+"Whoa~" → "cat surprised face"
+"嘿嘿嘿" → "cat sneaking mischievous"
+"Roar!" → "cat roaring fierce"
+"Meow~" → "cat meowing cute"
+"Counting stars" → "cat mouse looking up night sky dreamy"
+"Losing sleep" → "cat restless worried"
+"Praying hard" → "cat wishing hoping"
+"Dreaming about" → "cat daydreaming happy"
+
+**BAD Examples (NEVER output like this):**
+"I can smell your scent" → ❌ "perfume bottles on table"
+"The beast inside" → ❌ "dark stage scene"
+"Yeah yeah" → ❌ "yeah yeah" (never repeat the original)
+"啊啊啊" → ❌ "啊啊啊" (never repeat the original)
+"Counting stars" → ❌ "counting money coins" (literal interpretation!)
+"Losing sleep" → ❌ "sleeping bed" (too literal!)
+"Keep out" → ❌ "keep out sign fence" (object, no character!)
+
+Lyrics to convert:"""

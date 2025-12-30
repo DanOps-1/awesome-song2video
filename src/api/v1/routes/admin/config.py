@@ -33,16 +33,10 @@ class RenderConfig(BaseModel):
     placeholder_clip_path: str
 
 
-class WhisperConfig(BaseModel):
-    model_name: str
-    no_speech_threshold: float
-
-
 class SystemConfig(BaseModel):
     environment: str
     retriever: RetrieverConfig
     render: RenderConfig
-    whisper: WhisperConfig
     query_rewrite_enabled: bool
     query_rewrite_mandatory: bool
 
@@ -53,7 +47,6 @@ class ConfigPatchRequest(BaseModel):
     render_clip_concurrency: int | None = Field(default=None, ge=1, le=20)
     render_per_video_limit: int | None = Field(default=None, ge=1, le=5)
     render_max_retry: int | None = Field(default=None, ge=0, le=10)
-    whisper_no_speech_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     query_rewrite_enabled: bool | None = None
     query_rewrite_mandatory: bool | None = None
 
@@ -102,10 +95,6 @@ async def get_config() -> SystemConfig:
             retry_backoff_base_ms=render_cfg.retry_backoff_base_ms,
             metrics_flush_interval_s=render_cfg.metrics_flush_interval_s,
             placeholder_clip_path=render_cfg.placeholder_asset_path,
-        ),
-        whisper=WhisperConfig(
-            model_name=settings.whisper_model_name,
-            no_speech_threshold=settings.whisper_no_speech_threshold,
         ),
         query_rewrite_enabled=settings.query_rewrite_enabled,
         query_rewrite_mandatory=settings.query_rewrite_mandatory,

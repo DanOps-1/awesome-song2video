@@ -11,7 +11,6 @@ from uuid import uuid4
 import structlog
 
 from src.infra.config.settings import get_settings
-from src.pipelines.lyrics_ingest.transcriber import transcribe_with_timestamps
 from src.services.matching.query_rewriter import QueryRewriter
 from src.services.matching.twelvelabs_client import client
 from src.audio.beat_detector import BeatAnalysisResult, find_nearest_beat
@@ -281,42 +280,6 @@ class TimelineBuilder:
 
         return split_segments
 
-    async def transcribe_only(
-        self,
-        audio_path: Path,
-        language: str | None = None,
-        prompt: str | None = None,
-        on_progress: ProgressCallback | None = None,
-    ) -> list[dict[str, Any]]:
-        """只进行 Whisper 识别，返回歌词片段列表（不进行视频匹配）。
-
-        返回格式: [{"text": "歌词", "start": 开始秒, "end": 结束秒}, ...]
-        """
-
-        async def report_progress(progress: float) -> None:
-            if on_progress:
-                await on_progress(progress)
-
-        await report_progress(5.0)  # 5%: 开始处理音频
-        audio_duration_ms = self._get_audio_duration(audio_path)
-        self._logger.info(
-            "timeline_builder.audio_info", path=str(audio_path), duration_ms=audio_duration_ms
-        )
-        await report_progress(20.0)  # 20%: 开始 Whisper 识别
-
-        raw_segments = await transcribe_with_timestamps(
-            audio_path, language=language, prompt=prompt
-        )
-        segments = [dict(segment) for segment in raw_segments]
-
-        await report_progress(80.0)  # 80%: Whisper 识别完成
-
-        # 分割长片段
-        segments = self._explode_segments(segments)
-
-        await report_progress(100.0)  # 100%: 完成
-        return segments
-
     async def match_videos_for_lines(
         self,
         lines: list[dict[str, Any]],
@@ -528,7 +491,10 @@ class TimelineBuilder:
         prompt: str | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> TimelineResult:
-        """完整构建流程（兼容旧代码）：Whisper 识别 + 视频匹配。"""
+        """完整构建流程（兼容旧代码）：歌词解析 + 视频匹配。
+
+        注意：本地 Whisper ASR 已移除，歌词必须通过在线服务获取或手动导入。
+        """
         self._candidate_cache.clear()
         self._used_segments.clear()  # 重置已使用片段追踪
         segments: list[dict[str, Any]] = []
@@ -544,20 +510,17 @@ class TimelineBuilder:
             self._logger.info(
                 "timeline_builder.audio_info", path=str(audio_path), duration_ms=audio_duration_ms
             )
-            await report_progress(10.0)  # 10%: 开始 Whisper 识别
-            raw_segments = await transcribe_with_timestamps(
-                audio_path, language=language, prompt=prompt
-            )
-            segments = [dict(segment) for segment in raw_segments]
-            await report_progress(30.0)  # 30%: Whisper 识别完成
-        elif lyrics_text:
+
+        if lyrics_text:
+            await report_progress(10.0)  # 10%: 解析歌词
             for idx, line in enumerate(lyrics_text.splitlines()):
                 stripped = line.strip()
                 if not stripped:
                     continue
                 segments.append({"text": stripped, "start": float(idx), "end": float(idx + 1)})
+            await report_progress(30.0)  # 30%: 歌词解析完成
         else:
-            raise ValueError("必须提供音频或歌词")
+            raise ValueError("必须提供歌词文本（通过在线服务获取或手动导入）")
 
         segments = self._explode_segments(segments)
 
