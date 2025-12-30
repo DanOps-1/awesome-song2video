@@ -179,13 +179,14 @@ class QueryRewriter:
 Your task: Convert song lyrics into **character action descriptions** for cat and mouse clips.
 
 **CRITICAL RULES - MUST FOLLOW:**
-1. Output MUST contain a CHARACTER: "cat" or "mouse"
-2. Output MUST contain an ACTION or EXPRESSION
-3. NEVER output objects only (NO: "perfume bottle", "stage", "gifts", "electricity")
-4. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
-5. Keep output SHORT: 3-6 English words only
-6. Prefer character close-ups with facial expressions or clear body movements
-7. Understand the EMOTIONAL/METAPHORICAL meaning, NOT literal meaning
+1. Output MUST contain a CHARACTER: "cat" or "mouse" ONLY
+2. NEVER use proper nouns like "Tom", "Jerry", or any character names - use "cat" or "mouse" instead
+3. Output MUST contain an ACTION or EXPRESSION
+4. NEVER output objects only (NO: "perfume bottle", "stage", "gifts", "electricity")
+5. NEVER output scenes without characters (NO: "kitchen scene", "garden view")
+6. Keep output SHORT: 3-6 English words only
+7. Prefer character close-ups with facial expressions or clear body movements
+8. Understand the EMOTIONAL/METAPHORICAL meaning, NOT literal meaning
 
 **METAPHORICAL LYRICS - Understand the emotion, not literal words:**
 - "counting stars" = romantic/dreamy/hopeful → "cat mouse looking up dreamy" (NOT counting objects!)
