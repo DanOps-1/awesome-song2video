@@ -33,7 +33,6 @@ class QueryRewriter:
         self._api_key = settings.deepseek_api_key
         self._base_url = settings.deepseek_base_url
         self._client: AsyncOpenAI | None = None
-        self._cache: dict[str, str] = {}
 
         if self._enabled and self._api_key:
             self._client = AsyncOpenAI(
@@ -94,26 +93,12 @@ class QueryRewriter:
         if not self._enabled or not self._client:
             return original_query
 
-        # 为不同的尝试次数构建缓存键
-        cache_key = f"{original_query}::{attempt}"
-
-        # 检查缓存
-        if cache_key in self._cache:
-            logger.debug(
-                "query_rewriter.cache_hit",
-                original=original_query,
-                attempt=attempt,
-                rewritten=self._cache[cache_key],
-            )
-            return self._cache[cache_key]
-
         try:
             rewritten = await self._call_llm(original_query, attempt)
 
             # 🎬 强制角色验证：确保查询包含 cat/mouse 角色
             rewritten = self._ensure_character_in_query(rewritten)
 
-            self._cache[cache_key] = rewritten
             logger.info(
                 "query_rewriter.rewritten",
                 original=original_query,
