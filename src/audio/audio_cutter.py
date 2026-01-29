@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from pydub import AudioSegment
+from pydub import AudioSegment  # type: ignore[import-untyped]
 import structlog
 
 logger = structlog.get_logger(__name__)

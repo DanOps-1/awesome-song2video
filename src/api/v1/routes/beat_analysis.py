@@ -9,7 +9,6 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Path as PathParam
 from pydantic import BaseModel, Field
 
-from src.audio.beat_detector import detect_beats
 from src.domain.models.beat_sync import BeatAnalysisData
 from src.infra.config.settings import get_settings
 from src.infra.persistence.database import get_session
@@ -51,85 +50,22 @@ class BeatSyncToggleResponse(BaseModel):
 @router.post(
     "/{mix_id}/analyze-beats",
     response_model=BeatAnalysisResponse,
-    summary="分析音频节拍",
-    description="手动触发音频节拍分析，用于卡点功能。",
+    summary="分析音频节拍（已废弃）",
+    description="本地节拍分析已移除。请使用 TwelveLabs action 模式进行视频匹配。",
+    deprecated=True,
 )
 async def analyze_beats(
     mix_id: Annotated[str, PathParam(description="Mix ID")],
 ) -> BeatAnalysisResponse:
     """分析音频节拍。
 
-    如果已有分析结果，将覆盖旧数据。
+    注意：本地 librosa 节拍检测已移除，该功能不再可用。
+    系统现在使用 TwelveLabs action 模式进行视频-音乐对齐。
     """
-    mix = await repo.get_request(mix_id)
-    if mix is None:
-        raise HTTPException(status_code=404, detail="Mix not found")
-
-    if not mix.audio_asset_id:
-        raise HTTPException(status_code=400, detail="Mix has no audio file")
-
-    # 解析音频路径
-    audio_path = _resolve_audio_path(mix.audio_asset_id)
-    if not audio_path:
-        raise HTTPException(status_code=404, detail="Audio file not found")
-
-    try:
-        # 进行节拍检测
-        beats = await detect_beats(audio_path)
-
-        # 保存到数据库
-        async with get_session() as session:
-            from sqlmodel import select
-
-            # 检查是否已存在
-            stmt = select(BeatAnalysisData).where(BeatAnalysisData.mix_request_id == mix_id)
-            result = await session.execute(stmt)
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                existing.bpm = beats.bpm
-                existing.beat_times_ms = beats.beat_times_ms
-                existing.downbeat_times_ms = beats.downbeat_times_ms
-                existing.beat_strength = beats.beat_strength
-                existing.tempo_stability = beats.tempo_stability
-                beat_data = existing
-            else:
-                beat_data = BeatAnalysisData(
-                    id=str(uuid4()),
-                    mix_request_id=mix_id,
-                    bpm=beats.bpm,
-                    beat_times_ms=beats.beat_times_ms,
-                    downbeat_times_ms=beats.downbeat_times_ms,
-                    beat_strength=beats.beat_strength,
-                    tempo_stability=beats.tempo_stability,
-                    enabled=True,
-                )
-                session.add(beat_data)
-
-            await session.commit()
-            await session.refresh(beat_data)
-
-        logger.info(
-            "beat_analysis.completed",
-            mix_id=mix_id,
-            bpm=round(beats.bpm, 1),
-            beat_count=len(beats.beat_times_ms),
-            stability=round(beats.tempo_stability, 2),
-        )
-
-        return BeatAnalysisResponse(
-            id=beat_data.id,
-            mix_request_id=mix_id,
-            bpm=beats.bpm,
-            beat_count=len(beats.beat_times_ms),
-            downbeat_count=len(beats.downbeat_times_ms),
-            tempo_stability=beats.tempo_stability,
-            enabled=beat_data.enabled,
-        )
-
-    except Exception as exc:
-        logger.error("beat_analysis.failed", mix_id=mix_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Beat analysis failed: {exc}") from exc
+    raise HTTPException(
+        status_code=501,
+        detail="Beat analysis is no longer available. The system now uses TwelveLabs action mode for video-music alignment.",
+    )
 
 
 @router.get(

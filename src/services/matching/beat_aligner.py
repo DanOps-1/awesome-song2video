@@ -3,27 +3,16 @@
 提供视频片段与音乐节拍的对齐评分计算，
 用于优化视频选择和渲染时的时间微调。
 
-支持两种对齐模式：
-1. 动作对齐（旧）：视频画面动作点 → 音乐节拍
-2. 鼓点对齐（新）：视频音频鼓点 → 音乐鼓点（类似剪映自动卡点）
+支持动作对齐模式：视频画面动作点 → 音乐节拍
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import structlog
 
-from src.audio.beat_detector import BeatAnalysisResult, find_nearest_beat
-from src.audio.onset_detector import (
-    OnsetResult,
-    detect_onsets,
-    detect_onsets_from_video,
-    get_relative_onsets,
-    find_best_offset,
-)
 from src.services.matching.action_detector import VideoActionProfile
 from src.infra.config.settings import get_settings
 
@@ -74,8 +63,8 @@ class BeatAligner:
         self,
         candidate: dict[str, Any],
         lyric_start_ms: int,
-        beats: BeatAnalysisResult | None,
-        video_profile: VideoActionProfile | None,
+        beats: Any | None = None,
+        video_profile: VideoActionProfile | None = None,
     ) -> AlignmentScore:
         """计算候选片段与节拍的对齐分数。
 
@@ -120,15 +109,8 @@ class BeatAligner:
                 },
             )
 
-        # 找到歌词起始位置最近的节拍
-        beat_result = find_nearest_beat(beats, lyric_start_ms, self.max_adjustment_ms)
-        if beat_result:
-            target_beat_ms = beat_result[0]
-            beat_offset = beat_result[1]
-            # 节拍分数：偏移越小分数越高
-            beat_score = 1.0 - (abs(beat_offset) / self.max_adjustment_ms)
-        else:
-            target_beat_ms = lyric_start_ms
+        # 使用歌词起始位置作为目标节拍
+        target_beat_ms = lyric_start_ms
 
         # 计算动作对齐分数
         if video_profile and video_profile.action_points:
@@ -238,7 +220,7 @@ class BeatAligner:
 
     def should_apply_beat_sync(
         self,
-        beats: BeatAnalysisResult | None,
+        beats: Any | None = None,
         min_stability: float = 0.5,
     ) -> bool:
         """判断是否应该应用节拍同步。
@@ -255,163 +237,27 @@ class BeatAligner:
         if beats is None:
             return False
 
-        if len(beats.beat_times_ms) < 4:
+        beat_times = getattr(beats, "beat_times_ms", [])
+        if len(beat_times) < 4:
             logger.info(
                 "beat_aligner.skip_sync",
                 reason="too_few_beats",
-                beat_count=len(beats.beat_times_ms),
+                beat_count=len(beat_times),
             )
             return False
 
-        if beats.tempo_stability < min_stability:
+        tempo_stability = getattr(beats, "tempo_stability", 0.0)
+        if tempo_stability < min_stability:
             logger.info(
                 "beat_aligner.skip_sync",
                 reason="unstable_tempo",
-                stability=beats.tempo_stability,
+                stability=tempo_stability,
                 threshold=min_stability,
             )
             return False
 
         return True
 
-    async def calculate_onset_alignment(
-        self,
-        candidate: dict[str, Any],
-        lyric_start_ms: int,
-        lyric_end_ms: int,
-        music_onsets: OnsetResult,
-        video_stream_url: str | None = None,
-    ) -> AlignmentScore:
-        """基于鼓点的对齐计算（类似剪映自动卡点）。
-
-        核心逻辑：
-        1. 获取歌词时间段内的音乐鼓点
-        2. 从视频音频中提取鼓点
-        3. 计算最佳偏移使两者鼓点对齐
-
-        Args:
-            candidate: 视频候选片段信息
-            lyric_start_ms: 歌词开始时间
-            lyric_end_ms: 歌词结束时间
-            music_onsets: 整首歌曲的鼓点检测结果
-            video_stream_url: 视频流 URL（用于提取视频音频）
-
-        Returns:
-            AlignmentScore 包含评分和建议偏移
-        """
-        clip_start_ms = int(candidate.get("start_time_ms", 0))
-        clip_end_ms = int(candidate.get("end_time_ms", 0))
-        original_score = float(candidate.get("score", 0.0))
-
-        # 获取歌词时间段内的音乐鼓点（相对时间）
-        music_onsets_relative = get_relative_onsets(music_onsets, lyric_start_ms, lyric_end_ms)
-
-        if not music_onsets_relative:
-            logger.debug(
-                "beat_aligner.no_music_onsets",
-                lyric_start_ms=lyric_start_ms,
-                lyric_end_ms=lyric_end_ms,
-            )
-            return AlignmentScore(
-                score=original_score,
-                best_action_point_ms=None,
-                best_beat_ms=None,
-                offset_ms=0,
-                details={
-                    "original_score": original_score,
-                    "reason": "no_music_onsets_in_range",
-                    "mode": "onset",
-                },
-            )
-
-        # 从视频中提取鼓点
-        video_onsets_relative: list[int] = []
-        if video_stream_url:
-            try:
-                video_onsets = await detect_onsets_from_video(
-                    video_stream_url,
-                    start_ms=clip_start_ms,
-                    end_ms=clip_end_ms,
-                )
-                # 转换为相对时间（相对于 clip_start_ms）
-                video_onsets_relative = [t - clip_start_ms for t in video_onsets.onset_times_ms]
-            except Exception as exc:
-                logger.warning(
-                    "beat_aligner.video_onset_extraction_failed",
-                    video_url=video_stream_url[:50] if video_stream_url else None,
-                    error=str(exc),
-                )
-
-        if not video_onsets_relative:
-            logger.debug(
-                "beat_aligner.no_video_onsets",
-                clip_start_ms=clip_start_ms,
-                clip_end_ms=clip_end_ms,
-            )
-            return AlignmentScore(
-                score=original_score,
-                best_action_point_ms=None,
-                best_beat_ms=None,
-                offset_ms=0,
-                details={
-                    "original_score": original_score,
-                    "reason": "no_video_onsets",
-                    "mode": "onset",
-                },
-            )
-
-        # 找到最佳偏移
-        best_offset, alignment_score = find_best_offset(
-            music_onsets=music_onsets_relative,
-            video_onsets=video_onsets_relative,
-            max_offset_ms=self.max_adjustment_ms,
-            step_ms=25,  # 更精细的步长
-            tolerance_ms=80,  # 鼓点对齐容差
-        )
-
-        # 综合评分：原始分数 * 0.6 + 鼓点对齐分数 * 0.4
-        final_score = original_score * 0.6 + alignment_score * 0.4
-
-        logger.info(
-            "beat_aligner.onset_alignment_calculated",
-            video_id=candidate.get("source_video_id"),
-            music_onsets=len(music_onsets_relative),
-            video_onsets=len(video_onsets_relative),
-            best_offset_ms=best_offset,
-            alignment_score=round(alignment_score, 3),
-            final_score=round(final_score, 3),
-        )
-
-        return AlignmentScore(
-            score=final_score,
-            best_action_point_ms=None,
-            best_beat_ms=None,
-            offset_ms=best_offset,
-            details={
-                "original_score": original_score,
-                "onset_alignment_score": alignment_score,
-                "music_onset_count": len(music_onsets_relative),
-                "video_onset_count": len(video_onsets_relative),
-                "mode": "onset",
-            },
-        )
-
 
 # 单例实例
 beat_aligner = BeatAligner()
-
-
-async def analyze_music_onsets(
-    audio_path: Path,
-) -> OnsetResult:
-    """分析整首歌曲的鼓点。
-
-    在视频匹配开始前调用一次，结果缓存供所有歌词行使用。
-
-    Args:
-        audio_path: 音频文件路径
-
-    Returns:
-        OnsetResult 包含整首歌的鼓点时间
-    """
-    return await detect_onsets(audio_path)

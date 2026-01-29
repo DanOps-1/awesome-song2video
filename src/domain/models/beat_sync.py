@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Optional
 
 from sqlalchemy import JSON, Column
@@ -25,7 +25,7 @@ class BeatAnalysisData(SQLModel, table=True):
     beat_strength: list[float] = Field(default_factory=list, sa_column=Column(JSON))
     tempo_stability: float = Field(default=0.0)
     enabled: bool = Field(default=True)  # 用户是否启用卡点功能
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class VideoActionCache(SQLModel, table=True):

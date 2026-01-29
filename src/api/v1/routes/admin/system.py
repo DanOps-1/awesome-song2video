@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -65,7 +65,7 @@ class HealthResponse(BaseModel):
 
 
 # 记录启动时间
-_startup_time = datetime.utcnow()
+_startup_time = datetime.now(UTC)
 
 
 def _scan_storage() -> StorageStats:
@@ -131,7 +131,7 @@ async def get_system_stats() -> SystemStats:
     storage = _scan_storage()
 
     # 运行时间
-    uptime = (datetime.utcnow() - _startup_time).total_seconds()
+    uptime = (datetime.now(UTC) - _startup_time).total_seconds()
 
     return SystemStats(
         tasks=TaskStats(

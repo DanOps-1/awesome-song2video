@@ -6,7 +6,7 @@ import asyncio
 import re
 
 import structlog
-from langdetect import detect, LangDetectException
+from langdetect import detect, LangDetectException  # type: ignore[import-untyped]
 
 from src.infra.config.settings import get_settings
 
@@ -22,7 +22,7 @@ except ImportError:
     AsyncOpenAI = None  # type: ignore[misc,assignment]
 
 try:
-    import translators as ts
+    import translators as ts  # type: ignore[import-not-found]
 
     HAS_TRANSLATORS = True
 except ImportError:

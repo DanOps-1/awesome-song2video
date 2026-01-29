@@ -58,41 +58,14 @@ class AppSettings(BaseSettings):
     query_rewrite_max_attempts: int = 5  # 最多尝试改写次数（增加到5次以追求更高分数）
     query_rewrite_score_threshold: float = 1.0  # 分数必须达到 1.0，否则持续改写
 
-    # 检索后端配置
-    retriever_backend: Literal["twelvelabs", "clip", "vlm"] = "twelvelabs"
-
-    # CLIP 模型配置
-    clip_model_name: str = "ViT-L-14"
-    clip_device: str | None = None  # 自动选择
-
-    # TransNetV2 镜头检测配置
-    transnet_model_path: str = "models/transnetv2"
-
-    # Qdrant 向量数据库配置
-    qdrant_path: str = "data/qdrant"
-    qdrant_collection: str = "video_shots"
-
-    # VLM 视觉语言模型配置
-    vlm_model: str = "gpt-4o"
-    vlm_endpoint: str = "https://api.openai.com/v1/chat/completions"
-    vlm_api_key: str | None = None
-
-    # 文本嵌入模型配置
-    text_embedding_model: str = "intfloat/multilingual-e5-base"
-    text_embedding_device: str | None = None  # 自动选择
-
-    # 节拍卡点功能配置
-    beat_sync_enabled: bool = True  # 是否启用卡点功能
-    beat_sync_mode: Literal["action", "onset"] = (
-        "onset"  # 对齐模式: action=动作高光, onset=鼓点对齐(类似剪映)
-    )
-    beat_sync_max_adjustment_ms: int = 500  # 最大调整偏移（毫秒）
-    beat_sync_action_weight: float = 0.6  # 动作分数权重（action 模式）
-    beat_sync_beat_weight: float = 0.4  # 节拍分数权重（action 模式）
-    beat_sync_onset_tolerance_ms: int = 80  # 鼓点对齐容差（onset 模式）
-    beat_sync_use_twelvelabs_highlights: bool = True  # 是否使用 TwelveLabs 高光检测
-    beat_sync_fallback_scene_detection: bool = True  # 是否使用 FFmpeg 场景检测作为备选
-    beat_sync_scene_threshold: float = 0.3  # FFmpeg 场景检测阈值
+    # 节拍卡点功能配置 (TwelveLabs action mode only)
+    beat_sync_enabled: bool = True
+    beat_sync_max_adjustment_ms: int = 500
+    beat_sync_action_weight: float = 0.6
+    beat_sync_beat_weight: float = 0.4
+    beat_sync_use_twelvelabs_highlights: bool = True
+    beat_sync_fallback_scene_detection: bool = True
+    beat_sync_scene_threshold: float = 0.3
 
     # 视频片头片尾过滤配置
     video_intro_skip_ms: int = 12000  # 跳过视频开头的毫秒数（卡通片头约 10-15 秒）

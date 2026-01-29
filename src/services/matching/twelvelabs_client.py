@@ -330,8 +330,12 @@ class TwelveLabsClient:
                     end=getattr(item, "end", None),
                     clips_count=len(getattr(item, "clips", []) or []),
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "twelvelabs.log_item_failed",
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
 
             clips = getattr(item, "clips", None) or []
             if clips:

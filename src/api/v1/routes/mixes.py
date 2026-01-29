@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from typing import Annotated
 from uuid import uuid4
 
+import structlog
 from arq.connections import create_pool
 from fastapi import APIRouter, HTTPException, Path
 from pydantic import BaseModel, Field
@@ -16,6 +18,7 @@ from src.infra.persistence.repositories.song_mix_repository import SongMixReposi
 from src.workers import redis_settings
 from src.workers.timeline_worker import build_timeline, match_videos
 
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/mixes", tags=["mixes"])
 repo = SongMixRepository()
@@ -165,8 +168,12 @@ async def get_mix(mix_id: Annotated[str, Path(description="混剪任务 ID")]) -
                     beat_count=len(beat_data.beat_times_ms),
                     tempo_stability=beat_data.tempo_stability,
                 )
-    except Exception:
-        pass  # 卡点信息获取失败不影响主流程
+    except Exception as exc:
+        logger.warning(
+            "mixes.beat_sync_query_failed",
+            mix_id=mix_id,
+            error=str(exc),
+        )  # 卡点信息获取失败不影响主流程
 
     return MixDetailResponse(
         id=mix.id,
@@ -213,7 +220,6 @@ async def import_lyrics(
     将用户提供的歌词文本解析为歌词行，并根据音频时长均匀分配时间戳。
     完成后状态变为 transcribed，等待用户确认歌词。
     """
-    import subprocess
     from pathlib import Path as FilePath
     from src.domain.models.song_mix import LyricLine
 
@@ -254,8 +260,13 @@ async def import_lyrics(
                     )
                     if result.returncode == 0 and result.stdout.strip():
                         audio_duration_ms = int(float(result.stdout.strip()) * 1000)
-                except Exception:
-                    pass
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    logger.warning(
+                        "mixes.ffprobe_duration_failed",
+                        mix_id=mix_id,
+                        audio_file=str(audio_file),
+                        error=str(exc),
+                    )
                 break
 
     # 均匀分配时间戳

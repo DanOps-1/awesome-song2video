@@ -1,10 +1,13 @@
-"""配置管理 Admin API。"""
+"""配置管理 Admin API。
+
+TwelveLabs-only architecture - simplified config without ML backend switching.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from src.domain.services.render_config_service import RenderConfigService
@@ -16,11 +19,12 @@ settings = get_settings()
 render_config_service = RenderConfigService()
 
 
-class RetrieverConfig(BaseModel):
-    backend: Literal["twelvelabs", "clip", "vlm"]
-    twelvelabs: dict[str, Any]
-    clip: dict[str, Any]
-    vlm: dict[str, Any]
+class TwelveLabsConfig(BaseModel):
+    api_key_set: bool
+    index_id: str
+    live_enabled: bool
+    audio_search_enabled: bool
+    transcription_search_enabled: bool
 
 
 class RenderConfig(BaseModel):
@@ -33,32 +37,37 @@ class RenderConfig(BaseModel):
     placeholder_clip_path: str
 
 
+class BeatSyncConfig(BaseModel):
+    enabled: bool
+    max_adjustment_ms: int
+    action_weight: float
+    beat_weight: float
+
+
 class SystemConfig(BaseModel):
     environment: str
-    retriever: RetrieverConfig
+    twelvelabs: TwelveLabsConfig
     render: RenderConfig
+    beat_sync: BeatSyncConfig
     query_rewrite_enabled: bool
-    query_rewrite_mandatory: bool
+    query_rewrite_score_threshold: float
+    query_rewrite_max_attempts: int
 
 
 class ConfigPatchRequest(BaseModel):
-    retriever_backend: Literal["twelvelabs", "clip", "vlm"] | None = None
     render_concurrency_limit: int | None = Field(default=None, ge=1, le=10)
     render_clip_concurrency: int | None = Field(default=None, ge=1, le=20)
     render_per_video_limit: int | None = Field(default=None, ge=1, le=5)
     render_max_retry: int | None = Field(default=None, ge=0, le=10)
     query_rewrite_enabled: bool | None = None
-    query_rewrite_mandatory: bool | None = None
+    beat_sync_enabled: bool | None = None
 
 
-class RetrieverStatusResponse(BaseModel):
-    current_backend: str
-    available_backends: list[str]
-    backend_status: dict[str, dict[str, Any]]
-
-
-class SwitchRetrieverRequest(BaseModel):
-    backend: Literal["twelvelabs", "clip", "vlm"]
+class TwelveLabsStatusResponse(BaseModel):
+    api_key_set: bool
+    index_id: str
+    live_enabled: bool
+    status: str
 
 
 @router.get("", response_model=SystemConfig)
@@ -68,24 +77,12 @@ async def get_config() -> SystemConfig:
 
     return SystemConfig(
         environment=settings.environment,
-        retriever=RetrieverConfig(
-            backend=settings.retriever_backend,
-            twelvelabs={
-                "api_key_set": bool(settings.tl_api_key),
-                "index_id": settings.tl_index_id,
-                "live_enabled": settings.tl_live_enabled,
-                "audio_search_enabled": settings.tl_audio_search_enabled,
-                "transcription_search_enabled": settings.tl_transcription_search_enabled,
-            },
-            clip={
-                "model_name": settings.clip_model_name,
-                "device": settings.clip_device or "auto",
-            },
-            vlm={
-                "model": settings.vlm_model,
-                "endpoint": settings.vlm_endpoint,
-                "api_key_set": bool(settings.vlm_api_key),
-            },
+        twelvelabs=TwelveLabsConfig(
+            api_key_set=bool(settings.tl_api_key),
+            index_id=settings.tl_index_id,
+            live_enabled=settings.tl_live_enabled,
+            audio_search_enabled=settings.tl_audio_search_enabled,
+            transcription_search_enabled=settings.tl_transcription_search_enabled,
         ),
         render=RenderConfig(
             concurrency_limit=settings.render_concurrency_limit,
@@ -96,8 +93,15 @@ async def get_config() -> SystemConfig:
             metrics_flush_interval_s=render_cfg.metrics_flush_interval_s,
             placeholder_clip_path=render_cfg.placeholder_asset_path,
         ),
+        beat_sync=BeatSyncConfig(
+            enabled=settings.beat_sync_enabled,
+            max_adjustment_ms=settings.beat_sync_max_adjustment_ms,
+            action_weight=settings.beat_sync_action_weight,
+            beat_weight=settings.beat_sync_beat_weight,
+        ),
         query_rewrite_enabled=settings.query_rewrite_enabled,
-        query_rewrite_mandatory=settings.query_rewrite_mandatory,
+        query_rewrite_score_threshold=settings.query_rewrite_score_threshold,
+        query_rewrite_max_attempts=settings.query_rewrite_max_attempts,
     )
 
 
@@ -108,7 +112,7 @@ async def patch_config(body: ConfigPatchRequest) -> SystemConfig:
     注意: 部分配置需要重启服务才能生效。
     """
     # 更新渲染配置
-    render_updates = {}
+    render_updates: dict[str, Any] = {}
     if body.render_per_video_limit is not None:
         render_updates["per_video_limit"] = body.render_per_video_limit
     if body.render_max_retry is not None:
@@ -117,62 +121,20 @@ async def patch_config(body: ConfigPatchRequest) -> SystemConfig:
     if render_updates:
         await render_config_service.update_config(render_updates)
 
-    # 注意: 其他配置（如 retriever_backend）需要修改环境变量或重启服务
-    # 这里返回当前配置状态
-    if body.retriever_backend and body.retriever_backend != settings.retriever_backend:
-        raise HTTPException(
-            status_code=400,
-            detail="Changing retriever backend requires service restart. Use /config/retriever/switch endpoint.",
-        )
-
+    # 注意: 其他配置需要修改环境变量或重启服务
     return await get_config()
 
 
-@router.get("/retriever", response_model=RetrieverStatusResponse)
-async def get_retriever_status() -> RetrieverStatusResponse:
-    """获取检索后端状态。"""
-    backend_status: dict[str, dict[str, Any]] = {
-        "twelvelabs": {
-            "available": bool(settings.tl_api_key),
-            "reason": "API key configured" if settings.tl_api_key else "API key not set",
-        },
-        "clip": {
-            "available": True,
-            "reason": "Local model, always available",
-        },
-        "vlm": {
-            "available": bool(settings.vlm_api_key),
-            "reason": "API key configured" if settings.vlm_api_key else "API key not set",
-        },
-    }
+@router.get("/twelvelabs", response_model=TwelveLabsStatusResponse)
+async def get_twelvelabs_status() -> TwelveLabsStatusResponse:
+    """获取 TwelveLabs API 状态。"""
+    status = "ready" if settings.tl_api_key and settings.tl_live_enabled else "not_configured"
+    if settings.tl_api_key and not settings.tl_live_enabled:
+        status = "mock_mode"
 
-    return RetrieverStatusResponse(
-        current_backend=settings.retriever_backend,
-        available_backends=["twelvelabs", "clip", "vlm"],
-        backend_status=backend_status,
+    return TwelveLabsStatusResponse(
+        api_key_set=bool(settings.tl_api_key),
+        index_id=settings.tl_index_id,
+        live_enabled=settings.tl_live_enabled,
+        status=status,
     )
-
-
-@router.post("/retriever/switch", status_code=202)
-async def switch_retriever(body: SwitchRetrieverRequest) -> dict[str, str]:
-    """切换检索后端。
-
-    注意: 此操作需要重启服务才能完全生效。
-    """
-    if body.backend == settings.retriever_backend:
-        return {"message": "Already using this backend", "backend": body.backend}
-
-    # 检查后端是否可用
-    if body.backend == "twelvelabs" and not settings.tl_api_key:
-        raise HTTPException(status_code=400, detail="TwelveLabs API key not configured")
-
-    if body.backend == "vlm" and not settings.vlm_api_key:
-        raise HTTPException(status_code=400, detail="VLM API key not configured")
-
-    # TODO: 实际切换逻辑（需要更新环境变量或配置文件）
-    # 目前仅返回提示信息
-    return {
-        "message": f"Backend switch to '{body.backend}' requested. Please update RETRIEVER_BACKEND environment variable and restart the service.",
-        "current_backend": settings.retriever_backend,
-        "requested_backend": body.backend,
-    }
