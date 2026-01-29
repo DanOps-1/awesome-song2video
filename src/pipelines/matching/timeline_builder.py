@@ -13,11 +13,6 @@ import structlog
 from src.infra.config.settings import get_settings
 from src.services.matching.query_rewriter import QueryRewriter
 from src.services.matching.twelvelabs_client import client
-from src.audio.beat_detector import BeatAnalysisResult, find_nearest_beat
-from src.audio.onset_detector import OnsetResult
-from src.services.matching.action_detector import action_detector
-from src.services.matching.beat_aligner import beat_aligner
-from src.services.matching.twelvelabs_video_fetcher import video_fetcher
 
 # 进度回调类型: async def callback(progress: float) -> None
 ProgressCallback = Callable[[float], Coroutine[Any, Any, None]]
@@ -82,8 +77,6 @@ class TimelineBuilder:
         self._overlap_threshold = 0.0  # 任何重叠 > 0 就跳过
         # 缓存所有曾经见过的候选片段，用于随机选择
         self._all_seen_candidates: list[dict[str, Any]] = []
-        # 卡点相关配置
-        self._beat_align_max_offset_ms = 200  # 画面切换最多提前/延后 200ms 对齐节拍
 
         # 画面连贯性：追踪上一个使用的视频，优先选择同源片段
         self._last_used_video_id: str | None = None
@@ -149,58 +142,6 @@ class TimelineBuilder:
                 return True
 
         return False
-
-    def _align_start_to_beat(
-        self,
-        start_ms: int,
-        end_ms: int,
-        beats: BeatAnalysisResult | None,
-        prev_end_ms: int = 0,
-    ) -> tuple[int, int]:
-        """将画面切换点（start_ms）对齐到最近的节拍。
-
-        简化版卡点：让每次画面切换都落在音乐节拍上，
-        视觉效果会更有节奏感。
-
-        Args:
-            start_ms: 原始开始时间
-            end_ms: 原始结束时间
-            beats: 节拍分析结果
-            prev_end_ms: 上一个片段的结束时间（防止重叠）
-
-        Returns:
-            (aligned_start_ms, aligned_end_ms) 对齐后的时间
-        """
-        if not beats or not self._settings.beat_sync_enabled:
-            return start_ms, end_ms
-
-        # 找最近的节拍
-        result = find_nearest_beat(beats, start_ms, max_offset_ms=self._beat_align_max_offset_ms)
-
-        if result is None:
-            return start_ms, end_ms
-
-        nearest_beat_ms, offset_ms = result
-
-        # 确保不与上一个片段重叠
-        if nearest_beat_ms < prev_end_ms:
-            return start_ms, end_ms
-
-        # 保持时长不变，只调整起止时间
-        duration = end_ms - start_ms
-        aligned_start = nearest_beat_ms
-        aligned_end = aligned_start + duration
-
-        if offset_ms != 0:
-            self._logger.debug(
-                "timeline_builder.beat_aligned",
-                original_start=start_ms,
-                aligned_start=aligned_start,
-                offset_ms=offset_ms,
-                nearest_beat=nearest_beat_ms,
-            )
-
-        return aligned_start, aligned_end
 
     def _get_audio_duration(self, audio_path: Path) -> int:
         """使用 ffprobe 获取音频文件时长（毫秒）。"""
@@ -284,8 +225,6 @@ class TimelineBuilder:
         self,
         lines: list[dict[str, Any]],
         audio_duration_ms: int = 0,
-        beats: BeatAnalysisResult | None = None,
-        music_onsets: OnsetResult | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> TimelineResult:
         """对已确认的歌词行进行视频匹配。
@@ -293,8 +232,6 @@ class TimelineBuilder:
         Args:
             lines: 歌词行列表，格式 [{"text": "...", "start_ms": int, "end_ms": int}, ...]
             audio_duration_ms: 音频总时长（毫秒），用于填充尾部
-            beats: 音频节拍分析结果（用于 action 模式卡点）
-            music_onsets: 音乐鼓点检测结果（用于 onset 模式卡点，类似剪映）
             on_progress: 进度回调
         """
         self._candidate_cache.clear()
@@ -353,22 +290,6 @@ class TimelineBuilder:
             start_ms = int(float(seg.get("start", 0)) * 1000)
             end_ms = int(float(seg.get("end", 0)) * 1000)
 
-            # 🎵 简化版卡点：将画面切换点对齐到最近的节拍
-            if beats and self._settings.beat_sync_enabled:
-                aligned_start, aligned_end = self._align_start_to_beat(
-                    start_ms, end_ms, beats, prev_end_ms=cursor_ms
-                )
-                if aligned_start != start_ms:
-                    self._logger.info(
-                        "timeline_builder.cut_aligned_to_beat",
-                        text=text[:20],
-                        original_start=start_ms,
-                        aligned_start=aligned_start,
-                        offset_ms=aligned_start - start_ms,
-                    )
-                    start_ms = aligned_start
-                    end_ms = aligned_end
-
             # 间隙处理
             if cursor_ms > 0 and start_ms > cursor_ms:
                 gap = start_ms - cursor_ms
@@ -416,20 +337,8 @@ class TimelineBuilder:
 
             normalized = self._normalize_candidates(candidates, start_ms, end_ms)
 
-            # 应用卡点评分
-            # 注意：onset 模式的鼓点分析移到渲染阶段，避免匹配时分析多个候选导致太慢
-            beat_sync_mode = (
-                self._settings.beat_sync_mode if self._settings.beat_sync_enabled else None
-            )
-
-            if beat_sync_mode == "action" and beats and beat_aligner.should_apply_beat_sync(beats):
-                # 动作高光对齐模式（旧模式，在匹配阶段计算）
-                selected_candidates = await self._select_candidates_with_beat_sync(
-                    normalized, limit=5, lyric_start_ms=start_ms, beats=beats
-                )
-            else:
-                # onset 模式或无卡点：只按 TwelveLabs 评分选择，鼓点分析在渲染时实时进行
-                selected_candidates = self._select_diverse_candidates(normalized, limit=5)
+            # 选择未使用或使用次数最少的片段
+            selected_candidates = self._select_diverse_candidates(normalized, limit=5)
 
             # 如果所有候选都被去重拒绝，随机选择一个未使用的片段
             if not selected_candidates:
@@ -1238,273 +1147,6 @@ class TimelineBuilder:
             last_video_id=self._last_used_video_id,
             message=f"严格去重：从{len(candidates)}个候选中筛选出{len(valid_candidates)}个有效，选择了{len(selected)}个",
         )
-
-        return selected
-
-    async def _select_candidates_with_beat_sync(
-        self,
-        candidates: list[dict[str, Any]],
-        limit: int,
-        lyric_start_ms: int,
-        beats: BeatAnalysisResult,
-    ) -> list[dict[str, Any]]:
-        """
-        选择候选片段并应用卡点评分。
-
-        流程:
-        1. 先用严格去重筛选有效候选
-        2. 获取每个候选视频的动作档案
-        3. 计算卡点对齐分数
-        4. 按综合评分排序选择
-        5. 存储 beat_sync_offset_ms 供渲染使用
-
-        Args:
-            candidates: 候选片段列表
-            limit: 选择数量限制
-            lyric_start_ms: 歌词行起始时间
-            beats: 节拍分析结果
-
-        Returns:
-            带有 beat_sync_offset_ms 的候选列表
-        """
-        if not candidates:
-            return []
-
-        # 第一步：应用严格去重过滤
-        valid_candidates: list[dict[str, Any]] = []
-        rejected_count = 0
-
-        for candidate in candidates:
-            video_id = str(candidate.get("source_video_id", ""))
-            start_ms = int(candidate.get("start_time_ms", 0))
-            end_ms = int(candidate.get("end_time_ms", 0))
-            segment_key = (video_id, start_ms, end_ms)
-
-            # 检查精确匹配重复
-            usage_count = self._used_segments.get(segment_key, 0)
-            if usage_count > 0:
-                rejected_count += 1
-                continue
-
-            # 检查时间重叠
-            has_overlap = False
-            for used_key in self._used_segments.keys():
-                used_video_id, used_start, used_end = used_key
-                if used_video_id == video_id:
-                    overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
-                    if overlap_ratio > 0:
-                        has_overlap = True
-                        rejected_count += 1
-                        break
-
-            if has_overlap:
-                continue
-
-            valid_candidates.append(dict(candidate))
-
-        if not valid_candidates:
-            self._logger.warning(
-                "timeline_builder.beat_sync_no_candidates",
-                total=len(candidates),
-                rejected=rejected_count,
-                message="卡点选择：所有候选都被过滤",
-            )
-            return []
-
-        # 第二步：获取视频动作档案并计算卡点分数
-        scored_candidates: list[tuple[dict[str, Any], float, int]] = []
-
-        for candidate in valid_candidates:
-            video_id = str(candidate.get("source_video_id", ""))
-            original_score = float(candidate.get("score", 0.0))
-
-            # 尝试获取视频动作档案
-            video_profile = None
-            try:
-                video_profile = await action_detector.analyze_video(video_id)
-            except Exception as exc:
-                self._logger.debug(
-                    "timeline_builder.action_detect_failed",
-                    video_id=video_id,
-                    error=str(exc),
-                )
-
-            # 计算卡点对齐分数
-            alignment = beat_aligner.calculate_alignment_score(
-                candidate=candidate,
-                lyric_start_ms=lyric_start_ms,
-                beats=beats,
-                video_profile=video_profile,
-            )
-
-            # 存储卡点偏移量供渲染使用
-            candidate["beat_sync_offset_ms"] = alignment.offset_ms
-            candidate["beat_sync_score"] = alignment.score
-            candidate["beat_sync_details"] = alignment.details
-
-            scored_candidates.append((candidate, alignment.score, alignment.offset_ms))
-
-            self._logger.debug(
-                "timeline_builder.beat_sync_scored",
-                video_id=video_id,
-                original_score=round(original_score, 3),
-                beat_sync_score=round(alignment.score, 3),
-                offset_ms=alignment.offset_ms,
-                has_action_profile=video_profile is not None,
-            )
-
-        # 第三步：按综合评分降序排序
-        scored_candidates.sort(key=lambda x: -x[1])
-
-        # 选择 top N
-        selected = [item[0] for item in scored_candidates[:limit]]
-
-        if selected:
-            self._logger.info(
-                "timeline_builder.beat_sync_selected",
-                total=len(candidates),
-                valid=len(valid_candidates),
-                selected=len(selected),
-                top_score=round(scored_candidates[0][1], 3) if scored_candidates else 0,
-                top_offset=scored_candidates[0][2] if scored_candidates else 0,
-                message="卡点选择完成",
-            )
-
-        return selected
-
-    async def _select_candidates_with_onset_sync(
-        self,
-        candidates: list[dict[str, Any]],
-        limit: int,
-        lyric_start_ms: int,
-        lyric_end_ms: int,
-        music_onsets: OnsetResult,
-    ) -> list[dict[str, Any]]:
-        """基于鼓点对齐选择候选视频（类似剪映自动卡点）。
-
-        核心逻辑：
-        1. 获取歌词时间段内的音乐鼓点
-        2. 从视频音频中提取鼓点
-        3. 计算最佳偏移使两者鼓点对齐
-        4. 按对齐分数排序选择候选
-
-        Args:
-            candidates: 候选列表
-            limit: 选择数量
-            lyric_start_ms: 歌词开始时间
-            lyric_end_ms: 歌词结束时间
-            music_onsets: 整首歌曲的鼓点检测结果
-        """
-        if not candidates:
-            return []
-
-        # 第一步：应用去重过滤（与 beat_sync 相同）
-        valid_candidates: list[dict[str, Any]] = []
-        rejected_count = 0
-
-        for candidate in candidates:
-            video_id = str(candidate.get("source_video_id", ""))
-            start_ms = int(candidate.get("start_time_ms", 0))
-            end_ms = int(candidate.get("end_time_ms", 0))
-            segment_key = (video_id, start_ms, end_ms)
-
-            usage_count = self._used_segments.get(segment_key, 0)
-            if usage_count > 0:
-                rejected_count += 1
-                continue
-
-            has_overlap = False
-            for used_key in self._used_segments.keys():
-                used_video_id, used_start, used_end = used_key
-                if used_video_id == video_id:
-                    overlap_ratio = calculate_overlap_ratio(start_ms, end_ms, used_start, used_end)
-                    if overlap_ratio > 0:
-                        has_overlap = True
-                        rejected_count += 1
-                        break
-
-            if has_overlap:
-                continue
-
-            valid_candidates.append(dict(candidate))
-
-        if not valid_candidates:
-            self._logger.warning(
-                "timeline_builder.onset_sync_no_candidates",
-                total=len(candidates),
-                rejected=rejected_count,
-            )
-            return []
-
-        # 第二步：只对 Top 3 候选计算鼓点对齐（避免分析全部候选导致太慢）
-        # 先按 TwelveLabs 原始评分排序，取前 3 个
-        valid_candidates.sort(key=lambda x: -float(x.get("score", 0.0)))
-        top_candidates = valid_candidates[:3]
-
-        self._logger.info(
-            "timeline_builder.onset_sync_analyzing",
-            total_valid=len(valid_candidates),
-            analyzing=len(top_candidates),
-            message=f"只分析前 {len(top_candidates)} 个候选的鼓点",
-        )
-
-        scored_candidates: list[tuple[dict[str, Any], float, int]] = []
-
-        for candidate in top_candidates:
-            video_id = str(candidate.get("source_video_id", ""))
-            original_score = float(candidate.get("score", 0.0))
-
-            # 获取视频流 URL 用于提取音频
-            video_stream_url = None
-            try:
-                video_stream_url = video_fetcher._get_stream_url(video_id)
-            except Exception as exc:
-                self._logger.debug(
-                    "timeline_builder.get_stream_url_failed",
-                    video_id=video_id,
-                    error=str(exc),
-                )
-
-            # 计算鼓点对齐分数
-            alignment = await beat_aligner.calculate_onset_alignment(
-                candidate=candidate,
-                lyric_start_ms=lyric_start_ms,
-                lyric_end_ms=lyric_end_ms,
-                music_onsets=music_onsets,
-                video_stream_url=video_stream_url,
-            )
-
-            # 存储对齐信息
-            candidate["beat_sync_offset_ms"] = alignment.offset_ms
-            candidate["beat_sync_score"] = alignment.score
-            candidate["beat_sync_details"] = alignment.details
-
-            scored_candidates.append((candidate, alignment.score, alignment.offset_ms))
-
-            self._logger.debug(
-                "timeline_builder.onset_sync_scored",
-                video_id=video_id,
-                original_score=round(original_score, 3),
-                onset_sync_score=round(alignment.score, 3),
-                offset_ms=alignment.offset_ms,
-            )
-
-        # 第三步：按对齐分数排序
-        scored_candidates.sort(key=lambda x: -x[1])
-
-        # 选择 top N
-        selected = [item[0] for item in scored_candidates[:limit]]
-
-        if selected:
-            self._logger.info(
-                "timeline_builder.onset_sync_selected",
-                total=len(candidates),
-                valid=len(valid_candidates),
-                selected=len(selected),
-                top_score=round(scored_candidates[0][1], 3) if scored_candidates else 0,
-                top_offset=scored_candidates[0][2] if scored_candidates else 0,
-                message="鼓点卡点选择完成",
-            )
 
         return selected
 

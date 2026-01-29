@@ -38,8 +38,6 @@ from src.services.matching.twelvelabs_video_fetcher import video_fetcher
 from src.services.render.placeholder_manager import cleanup_tmp_root, ensure_tmp_root
 from src.workers import BaseWorkerSettings
 from src.services.subtitle.translator import get_translator, is_english
-from src.audio.onset_detector import detect_onsets, OnsetResult
-from src.services.matching.beat_aligner import beat_aligner
 
 logger = structlog.get_logger(__name__)
 repo = RenderJobRepository()
@@ -128,32 +126,12 @@ async def _render_mix_impl(job_id: str) -> None:
         render_lines = [_build_render_line(line) for line in lines]
         builder = FFMpegScriptBuilder(resolution="1080p", frame_rate=25)
 
-        # 提前解析音频路径，用于实时鼓点检测
-        audio_path = _resolve_audio_path(mix)
-        music_onsets: OnsetResult | None = None
-        if settings.beat_sync_enabled and settings.beat_sync_mode == "onset" and audio_path:
-            try:
-                music_onsets = await detect_onsets(Path(audio_path))
-                logger.info(
-                    "render_worker.onset_detection_completed",
-                    job_id=job_id,
-                    onset_count=len(music_onsets.onset_times_ms),
-                    message="音乐鼓点检测完成，将在裁剪时实时对齐",
-                )
-            except Exception as exc:
-                logger.warning(
-                    "render_worker.onset_detection_failed",
-                    job_id=job_id,
-                    error=str(exc),
-                    message="鼓点检测失败，将跳过卡点对齐",
-                )
-
         tmp_root = ensure_tmp_root()
         with tempfile.TemporaryDirectory(dir=tmp_root.as_posix()) as tmp_dir:
             tmp_path = Path(tmp_dir)
             builder.write_edl(render_lines, tmp_path / "timeline.json")
             await repo.update_progress(job_id, 5.0)  # 5%: 准备完成
-            clips, clip_stats = await _extract_clips(render_lines, job_id, tmp_path, music_onsets)
+            clips, clip_stats = await _extract_clips(render_lines, job_id, tmp_path)
             await repo.update_progress(job_id, 50.0)  # 50%: 片段下载完成
             concat_file = tmp_path / "concat.txt"
             # 使用文件名而非绝对路径（所有 clip 都在同一目录下）
@@ -330,12 +308,12 @@ def _build_render_line(line: LyricLine) -> RenderLine:
             end_ms = adjusted_end
 
     # 转换所有候选片段为 VideoCandidate
-    # 对于 action 模式，需要应用预计算的 beat_sync_offset_ms
+    # 应用预计算的 beat_sync_offset_ms
     def _make_video_candidate(c: Any) -> VideoCandidate:
         c_start = c.start_time_ms
         c_end = c.end_time_ms
-        # action 模式下应用预计算的偏移
-        if settings.beat_sync_enabled and settings.beat_sync_mode == "action":
+        # 应用预计算的偏移
+        if settings.beat_sync_enabled:
             offset = getattr(c, "beat_sync_offset_ms", 0) or 0
             if offset != 0:
                 c_start, c_end = beat_aligner.adjust_clip_timing(
@@ -365,7 +343,7 @@ def _build_render_line(line: LyricLine) -> RenderLine:
 
 
 async def _extract_clips(
-    lines: list[RenderLine], job_id: str, tmp_path: Path, music_onsets: OnsetResult | None = None
+    lines: list[RenderLine], job_id: str, tmp_path: Path
 ) -> tuple[list[Path], dict[str, float | int | str]]:
     scheduler = RenderClipScheduler(
         max_parallelism=clip_config.max_parallelism,
@@ -428,52 +406,8 @@ async def _extract_clips(
         if candidates_to_try and len(candidates_to_try) > 1:
             for idx, candidate in enumerate(candidates_to_try):
                 try:
-                    # 实时鼓点对齐：计算该视频的最佳偏移
                     actual_start_ms = candidate.start_ms
                     actual_end_ms = candidate.end_ms
-                    onset_offset_ms = 0
-
-                    if (
-                        music_onsets
-                        and settings.beat_sync_enabled
-                        and settings.beat_sync_mode == "onset"
-                    ):
-                        try:
-                            video_stream_url = video_fetcher._get_stream_url(candidate.video_id)
-                            alignment = await beat_aligner.calculate_onset_alignment(
-                                candidate={
-                                    "source_video_id": candidate.video_id,
-                                    "start_time_ms": candidate.start_ms,
-                                    "end_time_ms": candidate.end_ms,
-                                    "score": candidate.score,
-                                },
-                                lyric_start_ms=line.lyric_start_ms,
-                                lyric_end_ms=line.lyric_end_ms,
-                                music_onsets=music_onsets,
-                                video_stream_url=video_stream_url,
-                            )
-                            onset_offset_ms = alignment.offset_ms
-                            if onset_offset_ms != 0:
-                                actual_start_ms, actual_end_ms = beat_aligner.adjust_clip_timing(
-                                    clip_start_ms=candidate.start_ms,
-                                    clip_end_ms=candidate.end_ms,
-                                    offset_ms=onset_offset_ms,
-                                    source_duration_ms=None,
-                                )
-                                logger.info(
-                                    "render_worker.onset_aligned",
-                                    job_id=job_id,
-                                    video_id=candidate.video_id,
-                                    offset_ms=onset_offset_ms,
-                                    original_start=candidate.start_ms,
-                                    actual_start=actual_start_ms,
-                                )
-                        except Exception as exc:
-                            logger.debug(
-                                "render_worker.onset_alignment_failed",
-                                video_id=candidate.video_id,
-                                error=str(exc),
-                            )
 
                     logger.info(
                         "render_worker.try_candidate",
@@ -483,7 +417,6 @@ async def _extract_clips(
                         total_candidates=len(candidates_to_try),
                         video_id=candidate.video_id,
                         score=candidate.score,
-                        onset_offset_ms=onset_offset_ms,
                     )
                     clip_path = await asyncio.to_thread(
                         video_fetcher.fetch_clip,
@@ -555,46 +488,8 @@ async def _extract_clips(
 
         # 没有多个候选，使用原有逻辑
         try:
-            # 实时鼓点对齐
             actual_start_ms = line.start_time_ms
             actual_end_ms = line.end_time_ms
-
-            if music_onsets and settings.beat_sync_enabled and settings.beat_sync_mode == "onset":
-                try:
-                    video_stream_url = video_fetcher._get_stream_url(line.source_video_id)
-                    alignment = await beat_aligner.calculate_onset_alignment(
-                        candidate={
-                            "source_video_id": line.source_video_id,
-                            "start_time_ms": line.start_time_ms,
-                            "end_time_ms": line.end_time_ms,
-                            "score": 0.0,
-                        },
-                        lyric_start_ms=line.lyric_start_ms,
-                        lyric_end_ms=line.lyric_end_ms,
-                        music_onsets=music_onsets,
-                        video_stream_url=video_stream_url,
-                    )
-                    if alignment.offset_ms != 0:
-                        actual_start_ms, actual_end_ms = beat_aligner.adjust_clip_timing(
-                            clip_start_ms=line.start_time_ms,
-                            clip_end_ms=line.end_time_ms,
-                            offset_ms=alignment.offset_ms,
-                            source_duration_ms=None,
-                        )
-                        logger.info(
-                            "render_worker.onset_aligned",
-                            job_id=job_id,
-                            video_id=line.source_video_id,
-                            offset_ms=alignment.offset_ms,
-                            original_start=line.start_time_ms,
-                            actual_start=actual_start_ms,
-                        )
-                except Exception as exc:
-                    logger.debug(
-                        "render_worker.onset_alignment_failed",
-                        video_id=line.source_video_id,
-                        error=str(exc),
-                    )
 
             clip_path = await asyncio.to_thread(
                 video_fetcher.fetch_clip,
