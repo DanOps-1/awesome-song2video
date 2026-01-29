@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { 
@@ -8,8 +8,7 @@ import {
   Button, 
   Upload, 
   Typography, 
-  message, 
-  Tooltip
+  message
 } from 'antd'
 import { 
   InboxOutlined, 
@@ -24,21 +23,30 @@ import {
   CustomerServiceOutlined,
   LoadingOutlined
 } from '@ant-design/icons'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, type Variants } from 'framer-motion'
 import { createMix, transcribeLyrics, fetchLyrics, uploadAudio } from '@/api/mix'
-import type { UploadFile, RcFile } from 'antd/es/upload/interface'
+import type { UploadFile } from 'antd/es/upload/interface'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
 const { Option } = Select
 
-const containerVariants = {
+const containerVariants: Variants = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.25, 0.1, 0.25, 1] } },
   exit: { opacity: 0, y: -20, transition: { duration: 0.3 } }
 }
 
-const RadioCard = ({ active, onClick, icon, title, desc, badge }: any) => (
+interface RadioCardProps {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  title: string;
+  desc: string;
+  badge?: string;
+}
+
+const RadioCard = ({ active, onClick, icon, title, desc, badge }: RadioCardProps) => (
   <div 
     onClick={onClick}
     className={`
@@ -74,7 +82,7 @@ export default function Create() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [fileList, setFileList] = useState<UploadFile[]>([])
-  const [aspectRatio, setAspectRatio] = useState('9:16')
+  const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | '1:1' | '4:3'>('9:16')
   const [lyricsMode, setLyricsMode] = useState('search')
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -202,7 +210,7 @@ export default function Create() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Form.Item name="language" label={<span className="text-white/80">语言</span>}>
-              <Select styles={{ popup: { background: '#1f1f3a' } }}>
+              <Select dropdownStyle={{ backgroundColor: '#1f1f3a' }}>
                 <Option value="auto">自动检测</Option>
                 <Option value="zh">中文</Option>
                 <Option value="en">英文</Option>
@@ -220,8 +228,11 @@ export default function Create() {
                   <RadioCard 
                     key={item.value}
                     active={aspectRatio === item.value}
-                    onClick={() => setAspectRatio(item.value)}
-                    {...item}
+                    onClick={() => setAspectRatio(item.value as any)}
+                    icon={item.icon}
+                    title={item.label}
+                    desc={item.desc}
+                    badge={item.badge}
                   />
                 ))}
               </div>

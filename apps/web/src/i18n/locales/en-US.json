@@ -1,0 +1,12 @@
+{
+  "app": {
+    "title": "Song2Video Admin",
+    "language": "Language"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "mixes": "Mix Tasks",
+    "settings": "Settings",
+    "logs": "Logs"
+  }
+}

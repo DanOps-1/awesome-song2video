@@ -1,9 +1,7 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
-  Music,
-  Film,
   Clock,
   CheckCircle,
   XCircle,
@@ -18,8 +16,12 @@ export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>()
   const queryClient = useQueryClient()
 
+  if (!taskId) {
+    return <Navigate to="/tasks" replace />
+  }
+
   const cancelMutation = useMutation({
-    mutationFn: ({ jobId }: { jobId: string }) => cancelRenderJob(taskId!, jobId),
+    mutationFn: ({ jobId }: { jobId: string }) => cancelRenderJob(taskId, jobId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task', taskId] })
     },
@@ -31,7 +33,7 @@ export default function TaskDetail() {
 
   const { data: task, isLoading: taskLoading } = useQuery({
     queryKey: ['task', taskId],
-    queryFn: () => getTask(taskId!),
+    queryFn: () => getTask(taskId),
     enabled: !!taskId,
     // 当有渲染任务正在运行时，每3秒自动刷新
     refetchInterval: (query) => {
@@ -46,7 +48,7 @@ export default function TaskDetail() {
 
   const { data: logsData } = useQuery({
     queryKey: ['task-logs', taskId],
-    queryFn: () => getTaskLogs(taskId!),
+    queryFn: () => getTaskLogs(taskId),
     enabled: !!taskId,
   })
 

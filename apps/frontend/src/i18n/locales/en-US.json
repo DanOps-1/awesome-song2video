@@ -1,0 +1,17 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "delete": "Delete"
+  },
+  "nav": {
+    "home": "Home",
+    "create": "Create",
+    "status": "Status",
+    "result": "Result"
+  }
+}

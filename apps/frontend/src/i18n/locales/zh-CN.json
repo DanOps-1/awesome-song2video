@@ -1,0 +1,17 @@
+{
+  "common": {
+    "loading": "加载中...",
+    "error": "发生错误",
+    "retry": "重试",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "delete": "删除"
+  },
+  "nav": {
+    "home": "首页",
+    "create": "创建",
+    "status": "状态",
+    "result": "结果"
+  }
+}

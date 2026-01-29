@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Cpu, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { Cpu, CheckCircle, AlertCircle } from 'lucide-react'
 import { getRetrieverStatus, switchRetriever } from '@/api/config'
 
 const backendInfo: Record<string, { name: string; description: string }> = {

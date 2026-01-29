@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, Navigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { useState } from 'react'
 import { 
@@ -7,14 +7,10 @@ import {
   message,
   Spin,
   Tag,
-  Tooltip,
-  Checkbox,
-  Progress,
-  Modal
+  Checkbox
 } from 'antd'
 import { 
   ArrowLeftOutlined, 
-  LoadingOutlined, 
   CheckCircleFilled, 
   PlayCircleFilled, 
   DeleteOutlined, 
@@ -23,25 +19,24 @@ import {
   SaveOutlined,
   CloseOutlined,
   ReloadOutlined,
-  ExclamationCircleOutlined,
-  VideoCameraOutlined
+  ExclamationCircleOutlined
 } from '@ant-design/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   getLines,
-  getPreview,
   submitRender,
   lockLine,
   lockAllLines,
   getMixStatus,
   updateLine,
   confirmLyrics,
-  unconfirmLyrics,
   matchVideos,
   deleteLine,
-  deleteLinesBatch,
   addLine,
   getCandidatePreviewUrl,
+  type LineInfo,
+  type CandidateInfo,
+  type AddLineRequest
 } from '@/api/mix'
 
 const containerVariants = {
@@ -60,21 +55,22 @@ export default function Status() {
   const queryClient = useQueryClient()
   const [messageApi, contextHolder] = message.useMessage()
 
+  if (!mixId) {
+    return <Navigate to="/" replace />
+  }
+
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
   const [newLyricText, setNewLyricText] = useState('')
   const [newLyricStartSec, setNewLyricStartSec] = useState('')
   const [newLyricEndSec, setNewLyricEndSec] = useState('')
-  const [selectedLineIds, setSelectedLineIds] = useState<Set<string>>(new Set())
-  const [isSelectMode, setIsSelectMode] = useState(false)
-  const [expandedLineIds, setExpandedLineIds] = useState<Set<string>>(new Set())
   const [previewingCandidate, setPreviewingCandidate] = useState<{lineId: string, candidateId: string} | null>(null)
   const [bilingualSubtitle, setBilingualSubtitle] = useState(false)
 
   const { data: mixData, isLoading: mixLoading } = useQuery({
     queryKey: ['mix', mixId],
-    queryFn: () => getMixStatus(mixId!),
+    queryFn: () => getMixStatus(mixId),
     enabled: !!mixId,
     refetchInterval: (query) => {
       const status = query.state.data?.timeline_status
@@ -84,42 +80,42 @@ export default function Status() {
 
   const { data: linesData } = useQuery({
     queryKey: ['lines', mixId],
-    queryFn: () => getLines(mixId!),
+    queryFn: () => getLines(mixId),
     enabled: !!mixId && mixData?.timeline_status === 'generated',
     placeholderData: keepPreviousData,
   })
 
   // --- Mutations (Simplified for brevity, same logic) ---
   const updateLineMutation = useMutation({
-    mutationFn: ({ lineId, text }: { lineId: string; text: string }) => updateLine(mixId!, lineId, text),
+    mutationFn: ({ lineId, text }: { lineId: string; text: string }) => updateLine(mixId, lineId, text),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mix', mixId] }); setEditingLineId(null); messageApi.success('已更新'); }
   })
   const deleteLineMutation = useMutation({
-    mutationFn: (lineId: string) => deleteLine(mixId!, lineId),
+    mutationFn: (lineId: string) => deleteLine(mixId, lineId),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mix', mixId] }); messageApi.success('已删除'); }
   })
   const addLineMutation = useMutation({
-    mutationFn: (payload: any) => addLine(mixId!, payload),
+    mutationFn: (payload: AddLineRequest) => addLine(mixId, payload),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['mix', mixId] }); setShowAddForm(false); messageApi.success('已添加'); }
   })
   const confirmLyricsMutation = useMutation({
-    mutationFn: () => confirmLyrics(mixId!),
+    mutationFn: () => confirmLyrics(mixId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mix', mixId] })
   })
   const matchVideosMutation = useMutation({
-    mutationFn: () => matchVideos(mixId!),
+    mutationFn: () => matchVideos(mixId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mix', mixId] })
   })
   const lockMutation = useMutation({
-    mutationFn: ({ lineId, segmentId }: { lineId: string; segmentId: string }) => lockLine(mixId!, lineId, segmentId),
+    mutationFn: ({ lineId, segmentId }: { lineId: string; segmentId: string }) => lockLine(mixId, lineId, segmentId),
     onSuccess: () => setTimeout(() => queryClient.invalidateQueries({ queryKey: ['lines', mixId] }), 100)
   })
   const lockAllMutation = useMutation({
-    mutationFn: () => lockAllLines(mixId!, candidateLines),
+    mutationFn: () => lockAllLines(mixId, candidateLines),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['lines', mixId] }); messageApi.success('已全部确认'); }
   })
   const renderMutation = useMutation({
-    mutationFn: () => submitRender(mixId!, { bilingual_subtitle: bilingualSubtitle }),
+    mutationFn: () => submitRender(mixId, { bilingual_subtitle: bilingualSubtitle }),
     onSuccess: (data) => { sessionStorage.setItem(`job_${mixId}`, data.job_id); navigate(`/result/${mixId}`); }
   })
 
@@ -238,7 +234,7 @@ export default function Status() {
             </AnimatePresence>
 
             <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-              {lyricsLines.map((line: any) => (
+              {lyricsLines.map((line: LineInfo) => (
                 <motion.div 
                   key={line.id} 
                   variants={itemVariants}
@@ -295,7 +291,7 @@ export default function Status() {
             {/* Toolbar */}
             <div className="glass rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4 sticky top-4 z-20 backdrop-blur-xl">
                <div className="flex items-center gap-4">
-                  <span className="text-white/70">已确认: <span className="text-violet-400 font-bold">{candidateLines.filter((l:any) => l.status === 'locked').length}</span> / {candidateLines.length}</span>
+                  <span className="text-white/70">已确认: <span className="text-violet-400 font-bold">{candidateLines.filter((l: LineInfo) => l.status === 'locked').length}</span> / {candidateLines.length}</span>
                   <Checkbox
                     checked={bilingualSubtitle}
                     onChange={e => setBilingualSubtitle(e.target.checked)}
@@ -317,7 +313,7 @@ export default function Status() {
                     icon={<CheckCircleFilled />}
                     onClick={() => lockAllMutation.mutate()}
                     loading={lockAllMutation.isPending}
-                    disabled={candidateLines.every((l:any) => l.status === 'locked')}
+                    disabled={candidateLines.every((l: LineInfo) => l.status === 'locked')}
                     className="border-green-500 text-green-400 hover:bg-green-500/10"
                   >
                     全部确认
@@ -327,7 +323,7 @@ export default function Status() {
                     icon={<PlayCircleFilled />}
                     onClick={() => renderMutation.mutate()}
                     loading={renderMutation.isPending}
-                    disabled={candidateLines.some((l:any) => l.status !== 'locked')}
+                    disabled={candidateLines.some((l: LineInfo) => l.status !== 'locked')}
                     className="bg-gradient-to-r from-violet-600 to-fuchsia-600 border-none"
                   >
                     生成视频
@@ -336,9 +332,9 @@ export default function Status() {
             </div>
 
             <div className="space-y-6">
-               {candidateLines.map((line: any) => {
+               {candidateLines.map((line: LineInfo) => {
                  const isLocked = line.status === 'locked'
-                 const selectedCand = line.candidates.find((c:any) => c.id === (line.selected_segment_id || line.candidates[0]?.id))
+                 const selectedCand = line.candidates.find((c: CandidateInfo) => c.id === (line.selected_segment_id || line.candidates[0]?.id))
                  
                  return (
                    <div key={line.id} className={`glass rounded-2xl p-6 transition-all border ${isLocked ? 'border-green-500/30 bg-green-500/5' : 'border-white/10'}`}>
@@ -362,11 +358,11 @@ export default function Status() {
                                <div className="w-full h-32 flex items-center justify-center border border-dashed border-white/20 rounded-xl text-white/40">
                                   <ExclamationCircleOutlined className="mr-2" /> 无匹配视频
                                </div>
-                            ) : (
-                               line.candidates.map((cand: any) => {
+                             ) : (
+                               line.candidates.map((cand: CandidateInfo) => {
                                   const isSelected = selectedCand?.id === cand.id
                                   return (
-                                     <div 
+                                     <div  
                                         key={cand.id} 
                                         className={`relative flex-shrink-0 w-48 group cursor-pointer rounded-xl overflow-hidden border-2 transition-all ${isSelected ? 'border-violet-500 shadow-lg shadow-violet-500/20' : 'border-transparent opacity-60 hover:opacity-100'}`}
                                         onClick={() => lockMutation.mutate({ lineId: line.id, segmentId: cand.id })}
@@ -374,7 +370,7 @@ export default function Status() {
                                         <div className="aspect-video bg-black relative">
                                            {previewingCandidate?.candidateId === cand.id ? (
                                               <video
-                                                src={getCandidatePreviewUrl(mixId!, line.id, cand.id)}
+                                                src={getCandidatePreviewUrl(mixId, line.id, cand.id)}
                                                 autoPlay
                                                 loop
                                                 muted

@@ -1,0 +1,12 @@
+{
+  "app": {
+    "title": "Song2Video 管理后台",
+    "language": "语言"
+  },
+  "nav": {
+    "dashboard": "仪表盘",
+    "mixes": "混剪任务",
+    "settings": "设置",
+    "logs": "日志"
+  }
+}

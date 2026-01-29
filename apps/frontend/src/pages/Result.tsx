@@ -1,9 +1,9 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getRenderStatus } from '@/api/mix'
 import { useState, useEffect } from 'react'
-import { Button, Progress, Typography, Spin, Tooltip } from 'antd'
-import { DownloadOutlined, HomeOutlined, RedoOutlined, ShareAltOutlined } from '@ant-design/icons'
+import { Button, Typography, Spin } from 'antd'
+import { DownloadOutlined, HomeOutlined, RedoOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import { motion } from 'framer-motion'
 import confetti from 'canvas-confetti'
 
@@ -11,17 +11,17 @@ const { Title, Paragraph, Text } = Typography
 
 export default function ResultPage() {
   const { mixId } = useParams<{ mixId: string }>()
-  const [jobId, setJobId] = useState<string | null>(null)
   const [hasCelebrated, setHasCelebrated] = useState(false)
 
-  useEffect(() => {
-    const storedJobId = sessionStorage.getItem(`job_${mixId}`)
-    if (storedJobId) setJobId(storedJobId)
-  }, [mixId])
+  const jobId = mixId ? sessionStorage.getItem(`job_${mixId}`) : null
+
+  if (!mixId || !jobId) {
+    return <Navigate to="/" replace />
+  }
 
   const { data: renderData } = useQuery({
     queryKey: ['render-status', mixId, jobId],
-    queryFn: () => getRenderStatus(mixId!, jobId!),
+    queryFn: () => getRenderStatus(mixId, jobId),
     enabled: !!mixId && !!jobId,
     refetchInterval: (query) => {
       const status = query.state.data?.status
@@ -114,7 +114,7 @@ export default function ResultPage() {
                   type="primary" 
                   size="large" 
                   icon={<DownloadOutlined />} 
-                  href={renderData?.output_url} 
+                  href={renderData?.output_url ?? undefined} 
                   target="_blank" 
                   download
                   className="bg-gradient-to-r from-violet-600 to-fuchsia-600 border-none h-12 px-8"
