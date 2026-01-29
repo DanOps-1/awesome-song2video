@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-import decord  # type: ignore[import-not-found]
+import decord
 import numpy as np
 import structlog
 
