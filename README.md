@@ -19,6 +19,9 @@
   <a href="https://github.com/DanOps-1/awesome-song2video/actions/workflows/security-audit.yml">
     <img src="https://github.com/DanOps-1/awesome-song2video/actions/workflows/security-audit.yml/badge.svg" alt="Security Audit">
   </a>
+  <a href="https://codecov.io/gh/DanOps-1/awesome-song2video">
+    <img src="https://codecov.io/gh/DanOps-1/awesome-song2video/branch/main/graph/badge.svg" alt="Code Coverage">
+  </a>
   <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/node-18+-green.svg" alt="Node 18+">
   <a href="https://creativecommons.org/licenses/by-nc/4.0/">
@@ -27,11 +30,12 @@
 </p>
 
 <p align="center">
+  <a href="README_EN.md">English</a> •
+  <a href="docs/">📚 文档</a> •
   <a href="#-快速开始">快速开始</a> •
-  <a href="#-核心特性">核心特性</a> •
-  <a href="#-技术架构">技术架构</a> •
-  <a href="#-api-文档">API 文档</a> •
-  <a href="#-贡献指南">贡献指南</a>
+  <a href="docs/DEMO.md">🎬 演示</a> •
+  <a href="#-为什么选择-song2video">为什么选择</a> •
+  <a href="CONTRIBUTING.md">贡献指南</a>
 </p>
 
 ---
@@ -46,7 +50,19 @@
 🎵 上传音频 → 🎤 在线歌词获取 → 🤖 AI 语义改写 → 🎬 视频片段匹配 → 🎯 节拍卡点 → 📹 渲染输出
 ```
 
-### 效果展示
+### 🎥 效果展示
+
+> **注意**: 演示视频和截图即将添加。目前可以通过 [快速开始](#-快速开始) 在本地运行查看效果。
+
+<!-- 
+TODO: 添加演示视频/GIF
+<p align="center">
+  <img src="media/screenshots/demo-1.gif" alt="Demo 1" width="45%">
+  <img src="media/screenshots/demo-2.gif" alt="Demo 2" width="45%">
+</p>
+-->
+
+### ✨ 核心功能
 
 | 功能 | 说明 |
 |------|------|
@@ -59,16 +75,36 @@
 
 ---
 
+## 🆚 为什么选择 Song2Video
+
+与传统视频编辑方式对比：
+
+| 特性 | 手动剪辑 | FFmpeg 拼接 | 关键词搜索 | **Song2Video** |
+|------|---------|------------|-----------|---------------|
+| 语义理解 | ❌ | ❌ | ⚠️ 浅层 | ✅ 深度语义 |
+| 自动卡点 | ❌ | ❌ | ❌ | ✅ 鼓点对齐 |
+| 智能去重 | ❌ | ❌ | ❌ | ✅ 80%+ 去重率 |
+| 处理速度 | 🐌 小时级 | ⚡ 分钟级 | ⚡ 分钟级 | ⚡ 分钟级 |
+| 匹配准确度 | 👍 高 | ❌ 无 | ⚠️ 中 | 👍 100% |
+| 学习成本 | 高 | 中 | 低 | **极低** |
+
+---
+
 ## 🚀 快速开始
 
-### 环境要求
+### 方式一：一键启动脚本（推荐）
 
-- Python >= 3.11
-- Node.js >= 18
-- FFmpeg
-- Redis
+```bash
+curl -fsSL https://raw.githubusercontent.com/DanOps-1/awesome-song2video/main/scripts/bootstrap.sh | bash
+```
 
-### 一键启动
+这个脚本会自动：
+- ✅ 检查并安装依赖（Python, Node.js, FFmpeg, Redis）
+- ✅ 克隆项目并配置环境
+- ✅ 启动所有服务
+- ✅ 打开浏览器访问前端
+
+### 方式二：Docker 启动
 
 ```bash
 # 1. 克隆项目
@@ -79,20 +115,65 @@ cd awesome-song2video
 cp .env.example .env
 # 编辑 .env，填入 TL_API_KEY 和 TL_INDEX_ID
 
-# 3. Docker 启动（推荐）
+# 3. 启动服务
 docker compose up -d
+```
 
-# 或手动启动
+### 方式三：手动启动
+
+<details>
+<summary>展开查看详细步骤</summary>
+
+#### 环境要求
+
+- Python >= 3.11
+- Node.js >= 18
+- FFmpeg
+- Redis
+- PostgreSQL
+
+#### 步骤
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/DanOps-1/awesome-song2video.git
+cd awesome-song2video
+
+# 2. 安装 Python 依赖
+uv sync
+
+# 3. 安装前端依赖
+cd apps/frontend && npm install
+cd ../web && npm install
+cd ../..
+
+# 4. 配置环境变量
+cp .env.example .env
+# 编辑 .env，填入必需的 API 密钥
+
+# 5. 启动服务
 bash start.sh
 ```
 
-### 访问地址
+</details>
 
-| 服务 | 地址 |
-|------|------|
-| 📚 API 文档 | http://localhost:8000/docs |
-| 🎨 用户前端 | http://localhost:6008 |
-| ⚙️ 管理后台 | http://localhost:6006 |
+### 📍 访问地址
+
+启动成功后，访问以下地址：
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| 🎨 用户前端 | http://localhost:6008 | 上传音频、生成视频 |
+| ⚙️ 管理后台 | http://localhost:6006 | 任务管理、系统监控 |
+| 📚 API 文档 | http://localhost:8000/docs | Swagger 交互式文档 |
+
+### 📝 使用步骤
+
+1. **上传音频** - 在用户前端上传 MP3/WAV 等音频文件
+2. **获取歌词** - 系统自动从多个平台获取歌词（或手动导入）
+3. **确认歌词** - 检查并编辑歌词时间轴
+4. **生成预览** - 查看视频片段匹配结果
+5. **提交渲染** - 一键生成最终视频
 
 ---
 
