@@ -52,7 +52,6 @@ docker build -t twelve_labs .
 # 2. 运行容器
 docker run --rm \
   -v $(pwd):/app \
-  -v whisper_models:/root/.cache/huggingface \
   twelve_labs
 
 # 3. 如果需要交互式运行
@@ -108,15 +107,11 @@ docker system prune -a
 A: Docker 需要：
    - 下载基础镜像（约 200MB）
    - 安装所有依赖
-   - 下载 Whisper 模型（首次运行）
 
    之后会很快，因为都缓存了。
 
 ### Q: 如何修改代码？
 A: 直接在 Mac 上编辑代码文件，Docker 会自动同步（通过 volume 挂载）。
-
-### Q: 模型下载在哪里？
-A: 在 Docker volume `whisper_models` 中，不会重复下载。
 
 ---
 

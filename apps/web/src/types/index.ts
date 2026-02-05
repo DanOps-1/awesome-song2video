@@ -112,10 +112,6 @@ export interface SystemConfig {
   environment: string
   retriever: RetrieverConfig
   render: RenderConfig
-  whisper: {
-    model_name: string
-    no_speech_threshold: number
-  }
   query_rewrite_enabled: boolean
   query_rewrite_mandatory: boolean
 }

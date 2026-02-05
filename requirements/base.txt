@@ -9,7 +9,6 @@ redis>=5.0.1
 arq>=0.25.0
 pydub>=0.25.1
 python-ffmpeg>=2.0.4
-openai-whisper>=20231117
 opentelemetry-sdk>=1.25.0
 opentelemetry-exporter-otlp>=1.25.0
 python-dotenv>=1.0.0

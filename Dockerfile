@@ -1,5 +1,5 @@
-# 使用 NVIDIA CUDA 基础镜像（支持 GPU 加速）
-FROM nvidia/cuda:13.1.1-runtime-ubuntu22.04
+# 使用轻量级 Python 镜像（已移除 Whisper，无需 GPU）
+FROM python:3.11-slim-bookworm
 
 # 设置工作目录
 WORKDIR /app
@@ -11,16 +11,11 @@ ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# 安装 Python 3.11 和系统依赖
+# 安装系统依赖（FFmpeg 用于视频处理）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-venv \
-    python3-pip \
     ffmpeg \
     git \
     curl \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv

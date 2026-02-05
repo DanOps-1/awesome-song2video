@@ -100,7 +100,14 @@ export default function Status() {
   })
   const confirmLyricsMutation = useMutation({
     mutationFn: () => confirmLyrics(mixId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mix', mixId] })
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mix', mixId] }),
+    onError: (error: any) => {
+      // 忽略"歌词已确认"的错误，这不是真正的错误
+      if (error?.response?.data?.detail === '歌词已确认') {
+        return
+      }
+      throw error
+    }
   })
   const matchVideosMutation = useMutation({
     mutationFn: () => matchVideos(mixId),

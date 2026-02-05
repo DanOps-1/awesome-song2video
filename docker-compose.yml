@@ -1,5 +1,4 @@
 services:
-  # PostgreSQL 数据库
   postgres:
     image: postgres:16-alpine
     container_name: song2video_postgres
@@ -17,7 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis 服务
   redis:
     image: redis:7-alpine
     container_name: song2video_redis
@@ -31,7 +29,6 @@ services:
       timeout: 5s
       retries: 3
 
-  # 后端 API 服务
   api:
     build:
       context: .
@@ -41,13 +38,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # 持久化数据目录
       - ./logs:/app/logs
       - ./artifacts:/app/artifacts
       - ./media:/app/media
-      # 持久化模型缓存
-      - whisper_cache:/root/.cache/whisper
-      - huggingface_cache:/root/.cache/huggingface
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
@@ -68,7 +61,6 @@ services:
       start_period: 30s
       retries: 3
 
-  # Timeline Worker（歌词识别、视频匹配）
   timeline-worker:
     image: song2video:latest
     container_name: song2video_timeline_worker
@@ -76,8 +68,6 @@ services:
       - ./logs:/app/logs
       - ./artifacts:/app/artifacts
       - ./media:/app/media
-      - whisper_cache:/root/.cache/whisper
-      - huggingface_cache:/root/.cache/huggingface
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
@@ -93,17 +83,7 @@ services:
       api:
         condition: service_healthy
     command: uv run arq src.workers.timeline_worker.WorkerSettings
-    # GPU 支持（可选，需要 NVIDIA 驱动）
-    # 如需启用 GPU 加速 Whisper，取消下面注释：
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
-  # Render Worker（视频渲染）
   render-worker:
     image: song2video:latest
     container_name: song2video_render_worker
@@ -111,8 +91,6 @@ services:
       - ./logs:/app/logs
       - ./artifacts:/app/artifacts
       - ./media:/app/media
-      - whisper_cache:/root/.cache/whisper
-      - huggingface_cache:/root/.cache/huggingface
     environment:
       - PYTHONUNBUFFERED=1
       - REDIS_URL=redis://redis:6379/0
@@ -129,8 +107,30 @@ services:
         condition: service_healthy
     command: uv run arq src.workers.render_worker.WorkerSettings
 
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    image: song2video-frontend:latest
+    container_name: song2video_frontend
+    ports:
+      - "6008:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  admin:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: song2video-admin:latest
+    container_name: song2video_admin
+    ports:
+      - "6006:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
-  whisper_cache:
-  huggingface_cache:

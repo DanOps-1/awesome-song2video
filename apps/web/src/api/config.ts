@@ -12,7 +12,6 @@ export async function updateConfig(updates: Partial<{
   render_clip_concurrency: number
   render_per_video_limit: number
   render_max_retry: number
-  whisper_no_speech_threshold: number
   query_rewrite_enabled: boolean
   query_rewrite_mandatory: boolean
 }>): Promise<SystemConfig> {

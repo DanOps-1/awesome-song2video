@@ -10,7 +10,8 @@ Auto-generated from all feature plans. Last updated: 2025-11-11
 - SQLModel + asyncpg（PostgreSQL 15）
 - Redis 7 + Arq worker（匹配/渲染队列）
 - FFmpeg CLI + ASS 字幕模板
-- Whisper large-v3 + Pydub（歌词时间戳）
+- Librosa（节拍检测）+ Pydub（音频处理）
+- 多源在线歌词服务（QQ音乐/网易云/酷狗/LRCLIB）
 - OpenTelemetry（Prometheus / Loki 输出）
 
 ## Project Structure
@@ -43,7 +44,7 @@ tests/
 ## Commands
 
 - `uvicorn src.api.main:app --reload --port 8080`：本地 API。
-- `arq src.workers.timeline_worker.WorkerSettings`：歌词/匹配 worker。
+- `arq src.workers.timeline_worker.WorkerSettings`：视频匹配 worker。
 - `arq src.workers.render_worker.WorkerSettings`：渲染/FFmpeg worker。
 - `pytest && ruff check && mypy`：CI 质量基线。
 - `scripts/dev/seed_demo.sh`：创建演示歌曲与媒资。
